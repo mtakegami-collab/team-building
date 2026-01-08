@@ -31,8 +31,6 @@
       justify-content:center;
       gap:8px;
     }
-
-    /* 選択中（手札だけで使う） */
     .card.clickable { cursor:pointer; }
     .selected{
       border-color:#0b57d0;
@@ -40,15 +38,13 @@
       font-weight:700;
     }
 
-    /* ✅ 色分け（日本語カード名に合わせて） */
-   /* ✅ 色分け（ハッキリ分ける：背景＋左枠で識別） */
-.type-environment { background:#dff7ff; border-color:#0aa2c0; } /* 環境：水色 */
-.type-budget      { background:#e7ffe7; border-color:#1b7f2a; } /* 予算：緑 */
-.type-riskmgmt    { background:#ffe3e3; border-color:#c62828; } /* リスク：赤 */
-.type-people      { background:#e8f0ff; border-color:#2a5bd7; } /* 人材：青 */
-.type-quality     { background:#fff1cc; border-color:#b7791f; } /* 品質：黄 */
-.type-time        { background:#f1e8ff; border-color:#6a3fb1; } /* 時間：紫 */
-
+    /* 色分け（例） */
+    .type-environment { background:#dff7ff; border-color:#0aa2c0; } /* 環境 */
+    .type-budget      { background:#e7ffe7; border-color:#1b7f2a; } /* 予算 */
+    .type-riskmgmt    { background:#ffe3e3; border-color:#c62828; } /* リスクマネジメント */
+    .type-people      { background:#e8f0ff; border-color:#2a5bd7; } /* 人材 */
+    .type-quality     { background:#fff1cc; border-color:#b7791f; } /* 品質 */
+    .type-time        { background:#f1e8ff; border-color:#6a3fb1; } /* 時間 */
 
     .card-title { font-size:18px; font-weight:800; text-align:center; }
     .card-sub { font-size:12px; color:#444; text-align:center; }
@@ -69,6 +65,9 @@
       background:#fafafa;
     }
     #inviteLinks li{ margin:6px 0; word-break: break-all; }
+
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    input[type="text"]{ padding:6px 8px; border:1px solid #ccc; border-radius:8px; }
   </style>
 </head>
 
@@ -81,9 +80,24 @@
   <!-- 運営パネル -->
   <div id="adminPanel" style="display:none;">
     <h2>運営パネル</h2>
-    <button onclick="dealCards()">カードを配布（運営のみ）</button>
 
-    <h3>参加者URL</h3>
+    <div class="row">
+      <span>部屋ID：</span>
+      <code id="roomLabel"></code>
+      <button onclick="newRoom()">新しい部屋を作る</button>
+    </div>
+
+    <div class="row" style="margin-top:8px;">
+      <span>部屋IDを指定して切替：</span>
+      <input id="roomInput" type="text" placeholder="例）tokyoA" />
+      <button onclick="goRoom()">この部屋へ移動</button>
+    </div>
+
+    <div style="margin-top:12px;">
+      <button onclick="dealCards()">カードを配布（この部屋だけ）</button>
+    </div>
+
+    <h3>参加者URL（この部屋）</h3>
     <ul id="inviteLinks"></ul>
   </div>
 
@@ -92,8 +106,6 @@
   <button onclick="showHand()">自分の手札を表示</button>
   <h2 id="handTitle"></h2>
   <p id="selectedText">選択中：なし</p>
-
-  <!-- 手札（カード型） -->
   <ul id="hand" class="grid"></ul>
 
   <h3>交換</h3>
@@ -101,10 +113,10 @@
   <select id="partnerSelect"></select>
   <button onclick="requestTrade()">交換リクエスト（選択カードを出す）</button>
 
-  <h3>送信中リクエスト（自分→相手）</h3>
+  <h3>送信中リクエスト</h3>
   <ul id="outgoing" class="grid"></ul>
 
-  <h3>受信中リクエスト（相手→自分）</h3>
+  <h3>受信中リクエスト</h3>
   <p class="muted">※ 承認する前に、あなたも「渡す1枚」を手札から選んでください</p>
   <ul id="incoming" class="grid"></ul>
 
@@ -120,4 +132,3 @@
   <script src="script.js"></script>
 </body>
 </html>
-
