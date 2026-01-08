@@ -41,12 +41,14 @@
     }
 
     /* ✅ 色分け（日本語カード名に合わせて） */
-    .type-environment { background:#eafff3; }      /* 環境 */
-    .type-budget      { background:#e9f7ef; }      /* 予算 */
-    .type-riskmgmt    { background:#fdeaea; }      /* リスクマネジメント */
-    .type-people      { background:#e8f4ff; }      /* 人材 */
-    .type-quality     { background:#fff6e5; }      /* 品質 */
-    .type-time        { background:#f0eaff; }      /* 時間 */
+   /* ✅ 色分け（ハッキリ分ける：背景＋左枠で識別） */
+.type-environment { background:#dff7ff; border-color:#0aa2c0; } /* 環境：水色 */
+.type-budget      { background:#e7ffe7; border-color:#1b7f2a; } /* 予算：緑 */
+.type-riskmgmt    { background:#ffe3e3; border-color:#c62828; } /* リスク：赤 */
+.type-people      { background:#e8f0ff; border-color:#2a5bd7; } /* 人材：青 */
+.type-quality     { background:#fff1cc; border-color:#b7791f; } /* 品質：黄 */
+.type-time        { background:#f1e8ff; border-color:#6a3fb1; } /* 時間：紫 */
+
 
     .card-title { font-size:18px; font-weight:800; text-align:center; }
     .card-sub { font-size:12px; color:#444; text-align:center; }
@@ -118,3 +120,4 @@
   <script src="script.js"></script>
 </body>
 </html>
+
