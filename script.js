@@ -16,14 +16,12 @@ const firebaseConfig = {
   appId: "1:901002422228:web:ac6817c3241dbef8a61841"
 };
 
-// Firebase 初期化
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 const roomId = "room1";
 const players = ["player1", "player2", "player3", "player4", "player5"];
 
-// 表示名
 const playerLabel = {
   player1: "部長",
   player2: "課長A",
@@ -32,7 +30,6 @@ const playerLabel = {
   player5: "社員B"
 };
 
-// 交換可能な相手（指定ルール）
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -41,43 +38,42 @@ const allowedPartners = {
   player5: ["player3"]
 };
 
-function params() {
-  return new URLSearchParams(location.search);
-}
-
+function params() { return new URLSearchParams(location.search); }
 const me = params().get("me") || "player1";
 const isAdmin = params().get("admin") === "1";
 
-if (!players.includes(me)) {
-  alert("URLの me が不正です。?me=player1 のように指定してください。");
-  throw new Error("invalid me");
-}
-
-// 表示
 document.getElementById("meLabel").textContent =
-  isAdmin ? `あなた：運営（admin=1） / 画面の本人役職：${playerLabel[me]}` : `あなたの役職：${playerLabel[me]}（固定）`;
+  isAdmin ? "あなた：運営（admin=1）" : `あなたの役職：${playerLabel[me]}（固定）`;
 
-// Firestore参照
 const playerRef = (p) => db.collection("rooms").doc(roomId).collection("players").doc(p);
 const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
 
-// シャッフル
-function shuffle(a) {
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
+// ---- 匿名ログイン（ルールでauth必須のため）----
+firebase.auth().signInAnonymously()
+  .then(() => {
+    log("匿名ログインOK");
+    initAfterLogin();
+  })
+  .catch(err => {
+    console.error(err);
+    alert("匿名ログイン失敗: " + (err?.message || err));
+  });
+
+function initAfterLogin() {
+  if (isAdmin) setupAdminPanel();
+  renderPartners();
+  subscribeIncoming();
 }
 
-// --- ここから「運営パネル」表示＆URL生成 ---
-if (isAdmin) {
-  document.getElementById("adminPanel").style.display = "block";
+function setupAdminPanel() {
+  const panel = document.getElementById("adminPanel");
+  panel.style.display = "block";
+
   const ul = document.getElementById("inviteLinks");
   ul.innerHTML = "";
 
-  // ✅ 今いるURLが「.../」でも「.../index.html」でも、必ず正しいベースにする
+  // ✅ index.html が二重にならないベースURL
   const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
-
   players.forEach(p => {
     const url = `${base}/index.html?me=${p}`;
     const li = document.createElement("li");
@@ -86,54 +82,21 @@ if (isAdmin) {
   });
 }
 
-
-// --- 匿名ログイン（Firestoreルールでauth必須にした場合に必要） ---
-firebase.auth().signInAnonymously()
-  .then(() => {
-    log("匿名ログインOK");
-    // ログインが完了してから監視や初期化を始める
-    initAfterLogin();
-  })
-  .catch(err => {
-    console.error(err);
-    alert("匿名ログイン失敗: " + (err?.message || err));
-  });
-
-// ログイン後にまとめて起動
-function initAfterLogin() {
-  renderPartners();
-  subscribeIncoming(); // ここで受信監視開始
-}
-
-// 交換相手の選択肢を描画
-function renderPartners() {
-  const partnerSelect = document.getElementById("partnerSelect");
-  partnerSelect.innerHTML = "";
-
-  (allowedPartners[me] || []).forEach(p => {
-    const o = document.createElement("option");
-    o.value = p;
-    o.textContent = playerLabel[p];
-    partnerSelect.appendChild(o);
-  });
-}
-
-// 配布（運営のみ）
-async function dealCards() {
-  if (!isAdmin) {
-    alert("運営のみ実行可能です");
-    return;
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
+}
 
+async function dealCards() {
+  if (!isAdmin) return alert("運営のみ実行可能です");
   log("配布開始");
 
   const cardsSnap = await db.collection("cards").get();
   const deck = cardsSnap.docs.map(d => d.data().type);
 
-  if (deck.length !== 20) {
-    alert(`cards が ${deck.length} 枚です（20枚必要）`);
-    return;
-  }
+  if (deck.length !== 20) return alert(`cards が ${deck.length} 枚です（20枚必要）`);
 
   shuffle(deck);
 
@@ -149,53 +112,60 @@ async function dealCards() {
   alert("配布完了");
 }
 
-// 手札表示
 async function showHand() {
   const snap = await playerRef(me).get();
   if (!snap.exists) {
-    alert("プレイヤーデータが存在しません。Firestoreの players を確認してください。");
+    alert("プレイヤーデータが存在しません（Firestoreのplayersを確認）");
     return;
   }
 
   const data = snap.data();
+  const hand = Array.isArray(data.hand) ? data.hand : [];
+  const selected = data.selectedCard ?? null;
+
+  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
+  document.getElementById("selectedText").textContent = `選択中：${selected || "なし"}`;
+
   const ul = document.getElementById("hand");
   ul.innerHTML = "";
 
-  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
-  document.getElementById("selectedText").textContent = `選択中：${data.selectedCard || "なし"}`;
-
-  (data.hand || []).forEach(card => {
+  // ★ここが「カードっぽく」する部分
+  hand.forEach(card => {
     const li = document.createElement("li");
-    li.textContent = card;
-    li.style.cursor = "pointer";
-    if (data.selectedCard === card) li.style.fontWeight = "bold";
+    li.className = "card" + (selected === card ? " selected" : "");
+    li.textContent = card;         // 表示文字（予算/人材/品質/リスク/時間）
+    li.title = "クリックで選択";
 
     li.onclick = async () => {
       await playerRef(me).update({ selectedCard: card });
-      showHand();
+      showHand(); // 選択状態を再描画
     };
 
     ul.appendChild(li);
   });
 }
 
-// 交換リクエスト
+function renderPartners() {
+  const sel = document.getElementById("partnerSelect");
+  sel.innerHTML = "";
+  (allowedPartners[me] || []).forEach(p => {
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = playerLabel[p];
+    sel.appendChild(o);
+  });
+}
+
 async function requestTrade() {
-  const partnerSelect = document.getElementById("partnerSelect");
-  const partner = partnerSelect.value;
+  const partner = document.getElementById("partnerSelect").value;
 
   if (!(allowedPartners[me] || []).includes(partner)) {
     alert("その相手とは交換できません（ルール違反）");
     return;
   }
 
-  const meSnap = await playerRef(me).get();
-  const meData = meSnap.data() || {};
-
-  if (!meData.selectedCard) {
-    alert("交換に出すカードを、手札からクリックして選択してください");
-    return;
-  }
+  const meData = (await playerRef(me).get()).data() || {};
+  if (!meData.selectedCard) return alert("カードをクリックして選択してください");
 
   await tradesCol.add({
     from: me,
@@ -208,41 +178,32 @@ async function requestTrade() {
   alert("交換リクエスト送信");
 }
 
-// ✅ 受信監視（ここが修正点）
-// 以前：where(to==me).where(status==pending) → 複合インデックスが必要になりやすい
-// 今回：where(to==me) だけにして、ブラウザ側で pending を絞り込む
+// 受信監視（権限・インデックス問題を避けるため to==me のみ）
 function subscribeIncoming() {
-  tradesCol
-    .where("to", "==", me)
-    .onSnapshot((snap) => {
-      const ul = document.getElementById("incoming");
-      ul.innerHTML = "";
+  tradesCol.where("to", "==", me).onSnapshot((snap) => {
+    const ul = document.getElementById("incoming");
+    ul.innerHTML = "";
 
-      const docs = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(t => t.status === "pending");
+    const docs = snap.docs.map(d => d.data()).filter(t => t.status === "pending");
+    if (docs.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "（なし）";
+      ul.appendChild(li);
+      return;
+    }
 
-      if (docs.length === 0) {
-        const li = document.createElement("li");
-        li.textContent = "（なし）";
-        ul.appendChild(li);
-        return;
-      }
-
-      docs.forEach(t => {
-        const li = document.createElement("li");
-        li.textContent = `${playerLabel[t.from]}から：${t.fromCard}`;
-        ul.appendChild(li);
-      });
-    }, (err) => {
-      console.error(err);
-      alert("受信監視でエラー: " + (err?.message || err));
+    docs.forEach(t => {
+      const li = document.createElement("li");
+      li.textContent = `${playerLabel[t.from]}から：${t.fromCard}`;
+      ul.appendChild(li);
     });
+  }, (err) => {
+    console.error(err);
+    alert("受信監視でエラー: " + (err?.message || err));
+  });
 }
 
-// グローバル公開
+// グローバル
 window.dealCards = dealCards;
 window.showHand = showHand;
 window.requestTrade = requestTrade;
-
-
