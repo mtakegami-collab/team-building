@@ -185,9 +185,13 @@ async function dealCards() {
 }
 
 // 手札（カード型）
+// ボタン用：最初の1回だけ描画したい時に使う（監視が動いていれば不要でもOK）
 async function showHand() {
   const snap = await playerRef(me).get();
   if (!snap.exists) return alert("プレイヤーデータが存在しません（Firestoreのplayersを確認）");
+  renderHandFromData(snap.data());
+}
+
 
   const data = snap.data();
   const hand = Array.isArray(data.hand) ? data.hand : [];
@@ -470,4 +474,5 @@ function renderHandFromData(data) {
     ul.appendChild(li);
   });
 }
+
 
