@@ -425,3 +425,49 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 
+// ✅ 手札をリアルタイムで監視して、自動で表示更新する
+function subscribeHand() {
+  playerRef(me).onSnapshot((snap) => {
+    if (!snap.exists) return;
+    renderHandFromData(snap.data());
+  }, (err) => {
+    console.error(err);
+    alert("手札監視でエラー: " + (err?.message || err));
+  });
+}
+
+// ✅ 受け取った player データから手札を描画（これが本体）
+function renderHandFromData(data) {
+  const hand = Array.isArray(data.hand) ? data.hand : [];
+  const selected = data.selectedCard ?? null;
+
+  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
+  document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
+
+  const ul = document.getElementById("hand");
+  ul.innerHTML = "";
+
+  hand.forEach(card => {
+    const li = document.createElement("li");
+    li.className = `card clickable type-${normType(card)}${selected === card ? " selected" : ""}`;
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = cardText(card);
+
+    const sub = document.createElement("div");
+    sub.className = "card-sub";
+    sub.textContent = "クリックで選択";
+
+    li.appendChild(title);
+    li.appendChild(sub);
+
+    li.onclick = async () => {
+      await playerRef(me).update({ selectedCard: card });
+      // ここでは showHand() を呼ばない（監視が勝手に更新してくれる）
+    };
+
+    ul.appendChild(li);
+  });
+}
+
