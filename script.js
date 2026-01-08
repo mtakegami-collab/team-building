@@ -75,16 +75,17 @@ if (isAdmin) {
   const ul = document.getElementById("inviteLinks");
   ul.innerHTML = "";
 
-  // GitHub Pages でも確実に index.html を含める
-const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "")}`;
+  // ✅ 今いるURLが「.../」でも「.../index.html」でも、必ず正しいベースにする
+  const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
 
   players.forEach(p => {
+    const url = `${base}/index.html?me=${p}`;
     const li = document.createElement("li");
-const url = `${base}/index.html?me=${p}`;
     li.textContent = `${playerLabel[p]}：${url}`;
     ul.appendChild(li);
   });
 }
+
 
 // --- 匿名ログイン（Firestoreルールでauth必須にした場合に必要） ---
 firebase.auth().signInAnonymously()
@@ -243,4 +244,5 @@ function subscribeIncoming() {
 window.dealCards = dealCards;
 window.showHand = showHand;
 window.requestTrade = requestTrade;
+
 
