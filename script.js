@@ -107,9 +107,11 @@ firebase.auth().signInAnonymously()
 function initAfterLogin() {
   if (isAdmin) setupAdminPanel();
   renderPartners();
+  subscribeHand();      // ✅ これを追加（手札が自動更新される）
   subscribeIncoming();
-  subscribeOutgoing(); // ✅ 送信中表示
+  subscribeOutgoing();
 }
+
 
 function setupAdminPanel() {
   document.getElementById("adminPanel").style.display = "block";
@@ -474,5 +476,6 @@ function renderHandFromData(data) {
     ul.appendChild(li);
   });
 }
+
 
 
