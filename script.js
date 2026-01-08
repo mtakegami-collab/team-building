@@ -5,6 +5,7 @@ function log(msg) {
 }
 log("script.js 読み込みOK");
 
+// Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCjB5Fs6TBqF_WSHlH5XKf9EOi1APpE-ww",
   authDomain: "teambuilding-7a17c.firebaseapp.com",
@@ -17,6 +18,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
+// 固定設定
 const roomId = "room1";
 const players = ["player1", "player2", "player3", "player4", "player5"];
 
@@ -36,7 +38,7 @@ const allowedPartners = {
   player5: ["player3"]
 };
 
-// ✅ カード名（日本語前提）
+// カード名（日本語前提）
 const cardLabel = {
   "環境": "環境",
   "予算": "予算",
@@ -49,8 +51,6 @@ function cardText(v) {
   const s = String(v ?? "").trim();
   return cardLabel[s] ?? s;
 }
-
-// ✅ 色分けの判定（日本語カード名で確実に判定）
 function normType(v) {
   const s = String(v ?? "").trim();
   if (s === "環境") return "environment";
@@ -59,34 +59,33 @@ function normType(v) {
   if (s === "人材") return "people";
   if (s === "品質") return "quality";
   if (s === "時間") return "time";
-  return "budget"; // 不明は仮
+  return "budget";
 }
 
+// URLパラメータ
 function params() {
   return new URLSearchParams(location.search);
 }
+const q = params();
 
-const p = params();
-
-// ✅ 「何も指定がない（ベースURL）」なら運営にする
-const isAdmin = (p.get("admin") === "1") || (!p.has("me") && !p.has("admin"));
-
-// me は参加者URLが無いときのために仮で player1
-const me = (p.get("me") || "player1").trim();
-
-
+// ✅ ベースURL（何も無し）なら運営
+const isAdmin = (q.get("admin") === "1") || (!q.has("me") && !q.has("admin"));
+const me = (q.get("me") || "player1").trim();
 
 if (!players.includes(me)) {
   alert("URLの me が不正です。?me=player1 のように指定してください。");
   throw new Error("invalid me");
 }
 
+// 画面ラベル
 document.getElementById("meLabel").textContent =
   isAdmin ? `あなた：運営（admin=1）` : `あなたの役職：${playerLabel[me]}（固定）`;
 
-const playerRef = (p) => db.collection("rooms").doc(roomId).collection("players").doc(p);
+// Firestore参照
+const playerRef = (pid) => db.collection("rooms").doc(roomId).collection("players").doc(pid);
 const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
 
+// シャッフル
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -108,12 +107,15 @@ firebase.auth().signInAnonymously()
 function initAfterLogin() {
   if (isAdmin) setupAdminPanel();
   renderPartners();
-  subscribeHand();      // ✅ これを追加（手札が自動更新される）
+
+  // ✅ 手札をリアルタイム更新（送信側も自動で変わる）
+  subscribeHand();
+
   subscribeIncoming();
   subscribeOutgoing();
 }
 
-
+// 運営パネル（URL生成＋コピー）
 function setupAdminPanel() {
   document.getElementById("adminPanel").style.display = "block";
   const ul = document.getElementById("inviteLinks");
@@ -122,13 +124,12 @@ function setupAdminPanel() {
   // index.html が二重にならないベース
   const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
 
-  players.forEach(p => {
-    const url = `${base}/index.html?me=${p}`;
+  players.forEach(pid => {
+    const url = `${base}/index.html?me=${pid}`;
 
     const li = document.createElement("li");
-
     const label = document.createElement("span");
-    label.textContent = `${playerLabel[p]}：`;
+    label.textContent = `${playerLabel[pid]}：`;
 
     const a = document.createElement("a");
     a.href = url;
@@ -141,7 +142,7 @@ function setupAdminPanel() {
     btn.onclick = async () => {
       try {
         await navigator.clipboard.writeText(url);
-        alert(`${playerLabel[p]} のURLをコピーしました`);
+        alert(`${playerLabel[pid]} のURLをコピーしました`);
       } catch {
         prompt("コピーできない場合、ここからコピーしてください", url);
       }
@@ -154,13 +155,14 @@ function setupAdminPanel() {
   });
 }
 
+// 交換相手選択肢
 function renderPartners() {
   const sel = document.getElementById("partnerSelect");
   sel.innerHTML = "";
-  (allowedPartners[me] || []).forEach(p => {
+  (allowedPartners[me] || []).forEach(pid => {
     const o = document.createElement("option");
-    o.value = p;
-    o.textContent = playerLabel[p];
+    o.value = pid;
+    o.textContent = playerLabel[pid];
     sel.appendChild(o);
   });
 }
@@ -179,24 +181,34 @@ async function dealCards() {
   shuffle(deck);
 
   const batch = db.batch();
-  players.forEach(p => {
-    batch.update(playerRef(p), { hand: deck.splice(0, 4), selectedCard: null });
+  players.forEach(pid => {
+    batch.update(playerRef(pid), { hand: deck.splice(0, 4), selectedCard: null });
   });
 
   await batch.commit();
   alert("配布完了");
 }
 
-// 手札（カード型）
-// ボタン用：最初の1回だけ描画したい時に使う（監視が動いていれば不要でもOK）
+// ボタン用（任意）
 async function showHand() {
   const snap = await playerRef(me).get();
-  if (!snap.exists) return alert("プレイヤーデータが存在しません（Firestoreのplayersを確認）");
+  if (!snap.exists) return alert("プレイヤーデータが存在しません");
   renderHandFromData(snap.data());
 }
 
+// ✅ 手札リアルタイム監視
+function subscribeHand() {
+  playerRef(me).onSnapshot((snap) => {
+    if (!snap.exists) return;
+    renderHandFromData(snap.data());
+  }, (err) => {
+    console.error(err);
+    alert("手札監視でエラー: " + (err?.message || err));
+  });
+}
 
-  const data = snap.data();
+// ✅ 描画本体
+function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
 
@@ -223,7 +235,7 @@ async function showHand() {
 
     li.onclick = async () => {
       await playerRef(me).update({ selectedCard: card });
-      showHand();
+      // 監視が勝手に再描画
     };
 
     ul.appendChild(li);
@@ -257,16 +269,14 @@ async function requestTrade() {
   alert(`提案しました：${playerLabel[partner]}へ（${cardText(give)}）`);
 }
 
-// ✅ 送信中（自分→相手）の表示
+// 送信中（自分→相手）
 function subscribeOutgoing() {
   tradesCol.where("from", "==", me).onSnapshot((snap) => {
     const ul = document.getElementById("outgoing");
+    if (!ul) return;
     ul.innerHTML = "";
 
-    const pending = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(t => t.status === "pending");
-
+    const pending = snap.docs.map(d => d.data()).filter(t => t.status === "pending");
     if (pending.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（なし）";
@@ -288,7 +298,6 @@ function subscribeOutgoing() {
 
       li.appendChild(title);
       li.appendChild(sub);
-
       ul.appendChild(li);
     });
   }, (err) => {
@@ -301,12 +310,10 @@ function subscribeOutgoing() {
 function subscribeIncoming() {
   tradesCol.where("to", "==", me).onSnapshot((snap) => {
     const ul = document.getElementById("incoming");
+    if (!ul) return;
     ul.innerHTML = "";
 
-    const pending = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(t => t.status === "pending");
-
+    const pending = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.status === "pending");
     if (pending.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（なし）";
@@ -363,7 +370,6 @@ async function acceptTrade(tradeId) {
     if (t.status !== "pending") throw new Error("すでに処理済みです");
     if (t.to !== me) throw new Error("自分宛ではありません");
 
-    // ルールチェック（双方向）
     if (!(allowedPartners[t.from] || []).includes(t.to)) throw new Error("ルール違反の交換です");
     if (!(allowedPartners[t.to] || []).includes(t.from)) throw new Error("ルール違反の交換です");
 
@@ -379,8 +385,8 @@ async function acceptTrade(tradeId) {
     const fromHand = Array.isArray(fromData.hand) ? fromData.hand.slice() : [];
     const toHand = Array.isArray(toData.hand) ? toData.hand.slice() : [];
 
-    const fromGive = t.fromCard;                // 相手が出す
-    const toGive = toData.selectedCard ?? null; // 自分が出す（手札で選択）
+    const fromGive = t.fromCard;
+    const toGive = toData.selectedCard ?? null;
 
     if (!fromGive) throw new Error("相手の出すカードがありません");
     if (!toGive) throw new Error("承認前に、あなたも手札から『渡す1枚』を選んでください");
@@ -404,10 +410,11 @@ async function acceptTrade(tradeId) {
     });
   });
 
-  alert("交換完了！手札を更新します。");
-  showHand();
+  alert("交換完了！");
+  // ✅ subscribeHand があるので、送信側/受信側とも自動で手札が変わります
 }
 
+// 拒否
 async function rejectTrade(tradeId) {
   const tradeRef = tradesCol.doc(tradeId);
   const snap = await tradeRef.get();
@@ -431,53 +438,3 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
-
-// ✅ 手札をリアルタイムで監視して、自動で表示更新する
-function subscribeHand() {
-  playerRef(me).onSnapshot((snap) => {
-    if (!snap.exists) return;
-    renderHandFromData(snap.data());
-  }, (err) => {
-    console.error(err);
-    alert("手札監視でエラー: " + (err?.message || err));
-  });
-}
-
-// ✅ 受け取った player データから手札を描画（これが本体）
-function renderHandFromData(data) {
-  const hand = Array.isArray(data.hand) ? data.hand : [];
-  const selected = data.selectedCard ?? null;
-
-  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
-  document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
-
-  const ul = document.getElementById("hand");
-  ul.innerHTML = "";
-
-  hand.forEach(card => {
-    const li = document.createElement("li");
-    li.className = `card clickable type-${normType(card)}${selected === card ? " selected" : ""}`;
-
-    const title = document.createElement("div");
-    title.className = "card-title";
-    title.textContent = cardText(card);
-
-    const sub = document.createElement("div");
-    sub.className = "card-sub";
-    sub.textContent = "クリックで選択";
-
-    li.appendChild(title);
-    li.appendChild(sub);
-
-    li.onclick = async () => {
-      await playerRef(me).update({ selectedCard: card });
-      // ここでは showHand() を呼ばない（監視が勝手に更新してくれる）
-    };
-
-    ul.appendChild(li);
-  });
-}
-
-
-
-
