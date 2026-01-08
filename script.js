@@ -14,11 +14,13 @@ const firebaseConfig = {
   messagingSenderId: "901002422228",
   appId: "1:901002422228:web:ac6817c3241dbef8a61841"
 };
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// 固定設定
+// ===== 固定設定 =====
 const players = ["player1", "player2", "player3", "player4", "player5"];
+
 const playerLabel = {
   player1: "部長",
   player2: "課長A",
@@ -26,6 +28,7 @@ const playerLabel = {
   player4: "社員A",
   player5: "社員B"
 };
+
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -34,7 +37,7 @@ const allowedPartners = {
   player5: ["player3"]
 };
 
-// カード名（日本語前提）
+// カード（日本語前提）
 function cardText(v) { return String(v ?? "").trim(); }
 function normType(v) {
   const s = String(v ?? "").trim();
@@ -47,7 +50,7 @@ function normType(v) {
   return "budget";
 }
 
-// URLパラメータ
+// ===== URLパラメータ =====
 function params() { return new URLSearchParams(location.search); }
 const q = params();
 
@@ -55,30 +58,26 @@ const q = params();
 const isAdmin = (q.get("admin") === "1") || (!q.has("me") && !q.has("admin"));
 const me = (q.get("me") || "player1").trim();
 
-// ✅ room（部屋）をURLで受け取る（並行開催の鍵）
+// ✅ 同時並行の鍵：room
 let roomId = (q.get("room") || "").trim();
 
-// 運営がベースURLで来たら「部屋IDを自動生成して admin&room に遷移」する
 function genRoomId() {
   const r = Math.random().toString(36).slice(2, 7);
   const t = Date.now().toString(36).slice(-5);
   return `room-${t}${r}`;
 }
 function basePath() {
-  // /team-building/ でも /team-building/index.html でも対応
-  const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
-  return base;
+  return `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
 }
 function goto(url) { location.href = url; }
 
-// ✅ 運営で room が無い場合は自動で作って移動
+// ✅ 運営で room が無い場合：自動で作って運営URLへ遷移
 if (isAdmin && !roomId) {
   const newId = genRoomId();
-  const url = `${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`;
-  goto(url);
+  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`);
 }
 
-// room がまだ空（参加者がroom無しで来た等）なら room1 に落とす
+// 参加者が room 無しで来た場合は room1 に落とす（保険）
 roomId = roomId || "room1";
 
 if (!players.includes(me)) {
@@ -86,25 +85,39 @@ if (!players.includes(me)) {
   throw new Error("invalid me");
 }
 
-// 表示
-const meLabel = document.getElementById("meLabel");
-if (meLabel) {
-  meLabel.textContent = isAdmin
+// ===== 表示 =====
+const meLabelEl = document.getElementById("meLabel");
+if (meLabelEl) {
+  meLabelEl.textContent = isAdmin
     ? `あなた：運営（部屋：${roomId}）`
     : `あなたの役職：${playerLabel[me]}（部屋：${roomId}）`;
 }
-const roomLabel = document.getElementById("roomLabel");
-if (roomLabel) roomLabel.textContent = roomId;
+const roomLabelEl = document.getElementById("roomLabel");
+if (roomLabelEl) roomLabelEl.textContent = roomId;
 
-// Firestore参照（✅ roomId を使う）
+// ===== Firestore参照（room対応）=====
 const playerRef = (pid) => db.collection("rooms").doc(roomId).collection("players").doc(pid);
 const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
 
-// シャッフル
+// ===== 共通 =====
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
+  }
+}
+
+// ✅ 参加者が来たら、自分の players ドキュメントを自動作成
+async function ensurePlayerDoc(pid) {
+  const ref = playerRef(pid);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    await ref.set({
+      name: pid,
+      hand: [],
+      selectedCard: null
+    }, { merge: true });
+    log(`players/${pid} を作成しました`);
   }
 }
 
@@ -119,18 +132,33 @@ firebase.auth().signInAnonymously()
     alert("匿名ログイン失敗: " + (err?.message || err));
   });
 
-function initAfterLogin() {
-  if (isAdmin) setupAdminPanel();
+async function initAfterLogin() {
+  // ✅ 参加者でも運営でも、自分のdocは必ず作る
+  await ensurePlayerDoc(me);
+
+  // ✅ 運営は5人分も作って「部屋を初期化」
+  if (isAdmin) {
+    for (const pid of players) {
+      await ensurePlayerDoc(pid);
+    }
+    setupAdminPanel();
+  }
+
   renderPartners();
   subscribeHand();
   subscribeIncoming();
   subscribeOutgoing();
 }
 
-// 運営パネル：URL生成（room付き）＋コピー
+// ===== 運営パネル =====
 function setupAdminPanel() {
-  document.getElementById("adminPanel").style.display = "block";
+  const panel = document.getElementById("adminPanel");
+  if (!panel) return;
+
+  panel.style.display = "block";
+
   const ul = document.getElementById("inviteLinks");
+  if (!ul) return;
   ul.innerHTML = "";
 
   const base = basePath();
@@ -167,20 +195,21 @@ function setupAdminPanel() {
   });
 }
 
-// 運営：新しい部屋を作る（別会場用）
+// 新しい部屋へ（別会場用）
 function newRoom() {
   const newId = genRoomId();
   goto(`${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`);
 }
 
-// 運営：部屋IDを入力して切替
+// 入力した部屋へ切替
 function goRoom() {
-  const v = (document.getElementById("roomInput").value || "").trim();
+  const input = document.getElementById("roomInput");
+  const v = (input?.value || "").trim();
   if (!v) return alert("部屋IDを入力してください（例：tokyoA）");
   goto(`${basePath()}/?admin=1&room=${encodeURIComponent(v)}`);
 }
 
-// 交換相手選択肢
+// ===== 交換相手 =====
 function renderPartners() {
   const sel = document.getElementById("partnerSelect");
   if (!sel) return;
@@ -193,7 +222,7 @@ function renderPartners() {
   });
 }
 
-// 運営：配布（この部屋だけ）
+// ===== 配布（運営のみ・この部屋だけ）=====
 async function dealCards() {
   if (!isAdmin) return alert("運営のみ実行可能です");
   log("配布開始（部屋：" + roomId + "）");
@@ -208,21 +237,22 @@ async function dealCards() {
 
   const batch = db.batch();
   players.forEach(pid => {
-    batch.update(playerRef(pid), { hand: deck.splice(0, 4), selectedCard: null });
+    // ✅ players が無くても配れるように set(merge)
+    batch.set(playerRef(pid), { hand: deck.splice(0, 4), selectedCard: null }, { merge: true });
   });
 
   await batch.commit();
   alert("配布完了（部屋：" + roomId + "）");
 }
 
-// 手札ボタン（任意）
+// ===== 手札表示（リアルタイム）=====
 async function showHand() {
+  await ensurePlayerDoc(me);
   const snap = await playerRef(me).get();
   if (!snap.exists) return alert("プレイヤーデータが存在しません");
   renderHandFromData(snap.data());
 }
 
-// ✅ 手札リアルタイム監視（交換後、送信側も自動更新）
 function subscribeHand() {
   playerRef(me).onSnapshot((snap) => {
     if (!snap.exists) return;
@@ -233,15 +263,17 @@ function subscribeHand() {
   });
 }
 
-// 描画
 function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
 
-  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
-  document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
+  const titleEl = document.getElementById("handTitle");
+  const selTextEl = document.getElementById("selectedText");
+  if (titleEl) titleEl.textContent = `${playerLabel[me]}の手札`;
+  if (selTextEl) selTextEl.textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
 
   const ul = document.getElementById("hand");
+  if (!ul) return;
   ul.innerHTML = "";
 
   hand.forEach(card => {
@@ -260,21 +292,27 @@ function renderHandFromData(data) {
     li.appendChild(sub);
 
     li.onclick = async () => {
-      await playerRef(me).update({ selectedCard: card });
+      await playerRef(me).set({ selectedCard: card }, { merge: true });
     };
 
     ul.appendChild(li);
   });
 }
 
-// 交換リクエスト
+// ===== 交換リクエスト =====
 async function requestTrade() {
-  const partner = document.getElementById("partnerSelect").value;
+  const sel = document.getElementById("partnerSelect");
+  const partner = sel?.value;
+
+  if (!partner) return alert("交換相手を選んでください");
 
   if (!(allowedPartners[me] || []).includes(partner)) {
     alert("その相手とは交換できません（ルール違反）");
     return;
   }
+
+  await ensurePlayerDoc(me);
+  await ensurePlayerDoc(partner);
 
   const meData = (await playerRef(me).get()).data() || {};
   const give = meData.selectedCard ?? null;
@@ -294,14 +332,16 @@ async function requestTrade() {
   alert(`提案しました：${playerLabel[partner]}へ（${cardText(give)}）`);
 }
 
-// 送信中
+// ===== 送信中 =====
 function subscribeOutgoing() {
+  const ul = document.getElementById("outgoing");
+  if (!ul) return;
+
   tradesCol.where("from", "==", me).onSnapshot((snap) => {
-    const ul = document.getElementById("outgoing");
-    if (!ul) return;
     ul.innerHTML = "";
 
     const pending = snap.docs.map(d => d.data()).filter(t => t.status === "pending");
+
     if (pending.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（なし）";
@@ -325,17 +365,24 @@ function subscribeOutgoing() {
       li.appendChild(sub);
       ul.appendChild(li);
     });
+  }, (err) => {
+    console.error(err);
+    alert("送信中監視でエラー: " + (err?.message || err));
   });
 }
 
-// 受信
+// ===== 受信中 =====
 function subscribeIncoming() {
+  const ul = document.getElementById("incoming");
+  if (!ul) return;
+
   tradesCol.where("to", "==", me).onSnapshot((snap) => {
-    const ul = document.getElementById("incoming");
-    if (!ul) return;
     ul.innerHTML = "";
 
-    const pending = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.status === "pending");
+    const pending = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => t.status === "pending");
+
     if (pending.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（なし）";
@@ -375,10 +422,13 @@ function subscribeIncoming() {
 
       ul.appendChild(li);
     });
+  }, (err) => {
+    console.error(err);
+    alert("受信監視でエラー: " + (err?.message || err));
   });
 }
 
-// 承認：手札を入れ替え
+// ===== 承認（トランザクションで安全に交換）=====
 async function acceptTrade(tradeId) {
   await db.runTransaction(async (tx) => {
     const tradeRef = tradesCol.doc(tradeId);
@@ -389,6 +439,7 @@ async function acceptTrade(tradeId) {
     if (t.status !== "pending") throw new Error("すでに処理済みです");
     if (t.to !== me) throw new Error("自分宛ではありません");
 
+    // ルールチェック
     if (!(allowedPartners[t.from] || []).includes(t.to)) throw new Error("ルール違反の交換です");
     if (!(allowedPartners[t.to] || []).includes(t.from)) throw new Error("ルール違反の交換です");
 
@@ -419,16 +470,20 @@ async function acceptTrade(tradeId) {
     fromHand.push(toGive);
     toHand.push(fromGive);
 
-    tx.update(fromRef, { hand: fromHand, selectedCard: null });
-    tx.update(toRef, { hand: toHand, selectedCard: null });
+    tx.set(fromRef, { hand: fromHand, selectedCard: null }, { merge: true });
+    tx.set(toRef, { hand: toHand, selectedCard: null }, { merge: true });
 
-    tx.update(tradeRef, { status: "done", toCard: toGive, doneAt: firebase.firestore.FieldValue.serverTimestamp() });
+    tx.update(tradeRef, {
+      status: "done",
+      toCard: toGive,
+      doneAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   });
 
   alert("交換完了！（部屋：" + roomId + "）");
 }
 
-// 拒否
+// ===== 拒否 =====
 async function rejectTrade(tradeId) {
   const tradeRef = tradesCol.doc(tradeId);
   const snap = await tradeRef.get();
@@ -438,15 +493,19 @@ async function rejectTrade(tradeId) {
   if (t.to !== me) return alert("自分宛ではありません");
   if (t.status !== "pending") return alert("すでに処理済みです");
 
-  await tradeRef.update({ status: "rejected", rejectedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  await tradeRef.update({
+    status: "rejected",
+    rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+
   alert("拒否しました");
 }
 
-// グローバル
+// ===== グローバル（HTMLボタン用）=====
+window.newRoom = newRoom;
+window.goRoom = goRoom;
 window.dealCards = dealCards;
 window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
-window.newRoom = newRoom;
-window.goRoom = goRoom;
