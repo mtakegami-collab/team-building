@@ -134,11 +134,41 @@ function setupAdminPanel() {
 
   players.forEach(p => {
     const url = `${base}/index.html?me=${p}`;
+
     const li = document.createElement("li");
-    li.textContent = `${playerLabel[p]}：${url}`;
+
+    // 役職ラベル
+    const label = document.createElement("span");
+    label.textContent = `${playerLabel[p]}：`;
+
+    // URLリンク
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.textContent = url;
+    a.style.marginRight = "8px";
+
+    // コピーボタン
+    const btn = document.createElement("button");
+    btn.textContent = "コピー";
+    btn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        alert(`${playerLabel[p]} のURLをコピーしました`);
+      } catch (e) {
+        // クリップボードが使えない環境向け
+        prompt("コピーできない場合、ここからコピーしてください", url);
+      }
+    };
+
+    li.appendChild(label);
+    li.appendChild(a);
+    li.appendChild(btn);
+
     ul.appendChild(li);
   });
 }
+
 
 // 交換相手選択肢
 function renderPartners() {
@@ -395,4 +425,5 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+
 
