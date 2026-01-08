@@ -3,14 +3,68 @@
 <head>
   <meta charset="UTF-8" />
   <title>チームビルディング・カードゲーム</title>
+
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .muted { color:#666; font-size:12px; }
+
+    /* 手札を「横並び」にする入れ物 */
+    .hand-grid{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;     /* 横に並べて、はみ出したら折り返し */
+      padding:0;
+      margin:8px 0 0 0;
+      list-style:none;
+    }
+
+    /* 1枚のカード */
+    .card{
+      width:140px;
+      height:90px;
+      border:2px solid #333;
+      border-radius:10px;
+      padding:10px;
+      box-sizing:border-box;
+      background:#fff;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      user-select:none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      transition: transform 0.08s ease;
+    }
+    .card:active{ transform: translateY(1px); }
+
+    /* 選択中のカード */
+    .card.selected{
+      border-color:#0b57d0;
+      box-shadow: 0 0 0 3px rgba(11,87,208,0.18), 0 3px 10px rgba(0,0,0,0.14);
+      font-weight:700;
+    }
+
+    /* 運営パネルの枠 */
+    #adminPanel{
+      border:1px solid #ccc;
+      padding:12px;
+      margin:12px 0;
+      border-radius:10px;
+      background:#fafafa;
+    }
+    #inviteLinks li{ margin:6px 0; word-break: break-all; }
+  </style>
 </head>
+
 <body>
   <h1>チームビルディング・カードゲーム</h1>
 
   <p id="meLabel" style="font-weight:bold;"></p>
+  <p class="muted">※ 手札のカードをクリックすると「交換に出すカード」として選択されます</p>
 
   <!-- 運営パネル -->
-  <div id="adminPanel" style="display:none; border:1px solid #ccc; padding:12px; margin-bottom:16px;">
+  <div id="adminPanel" style="display:none;">
     <h2>運営パネル</h2>
     <button onclick="dealCards()">カードを配布（運営のみ）</button>
 
@@ -20,11 +74,12 @@
 
   <hr />
 
-  <!-- 参加者画面 -->
   <button onclick="showHand()">自分の手札を表示</button>
   <h2 id="handTitle"></h2>
   <p id="selectedText">選択中：なし</p>
-  <ul id="hand"></ul>
+
+  <!-- ★ここが手札表示（横並びカード） -->
+  <ul id="hand" class="hand-grid"></ul>
 
   <h3>交換</h3>
   <label>交換相手：</label>
