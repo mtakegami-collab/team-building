@@ -76,11 +76,11 @@ if (isAdmin) {
   ul.innerHTML = "";
 
   // GitHub Pages でも確実に index.html を含める
-  const base = `${location.origin}${location.pathname.replace(/\/?$/, "/")}index.html`;
+const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "")}`;
 
   players.forEach(p => {
     const li = document.createElement("li");
-    const url = `${base}?me=${p}`;
+const url = `${base}/index.html?me=${p}`;
     li.textContent = `${playerLabel[p]}：${url}`;
     ul.appendChild(li);
   });
@@ -243,3 +243,4 @@ function subscribeIncoming() {
 window.dealCards = dealCards;
 window.showHand = showHand;
 window.requestTrade = requestTrade;
+
