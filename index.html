@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>部課長ゲーム </title>
+</head>
+<body>
+  <h1>部課長ゲーム</h1>
+
+  <p id="meLabel" style="font-weight:bold;"></p>
+
+  <!-- 管理者パネル（admin=1 のときだけ表示） -->
+  <div id="adminPanel" style="display:none; border:1px solid #ccc; padding:12px; margin:12px 0;">
+    <h2 style="margin-top:0;">運営パネル</h2>
+
+    <div style="margin-bottom:12px;">
+      <button onclick="dealCards()">① 配布（運営のみ）</button>
+    </div>
+
+    <h3>参加者URL（配布用）</h3>
+    <p style="margin-top:0;">※ 下のURLを各参加者に送ってください</p>
+    <ul id="inviteLinks"></ul>
+  </div>
+
+  <!-- 参加者UI -->
+  <div style="margin-bottom:12px;">
+    <button onclick="showHand()">② 自分の手札を表示</button>
+  </div>
+
+  <h2 id="handTitle">手札</h2>
+  <p id="selectedText">選択中：なし</p>
+  <ul id="hand"></ul>
+
+  <hr />
+
+  <h2>交換（非同期）</h2>
+
+  <div style="margin-bottom:12px;">
+    <label>交換相手：</label>
+    <select id="partnerSelect"></select>
+    <button onclick="requestTrade()">③ 交換リクエスト（選択カードを出す）</button>
+  </div>
+
+  <h3>受信中リクエスト</h3>
+  <p style="margin-top:0;">※ 承認する前に、自分の手札から「渡す1枚」をクリックして選択してください。</p>
+  <ul id="incoming"></ul>
+
+  <hr />
+  <h3>ログ</h3>
+  <pre id="log" style="white-space:pre-wrap;"></pre>
+
+  <!-- Firebase SDK（compat）順番厳守 -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <script src="script.js"></script>
+</body>
+</html>
