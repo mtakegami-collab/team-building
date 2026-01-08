@@ -14,14 +14,11 @@ const firebaseConfig = {
   messagingSenderId: "901002422228",
   appId: "1:901002422228:web:ac6817c3241dbef8a61841"
 };
-
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 // 固定設定
-const roomId = "room1";
 const players = ["player1", "player2", "player3", "player4", "player5"];
-
 const playerLabel = {
   player1: "部長",
   player2: "課長A",
@@ -29,7 +26,6 @@ const playerLabel = {
   player4: "社員A",
   player5: "社員B"
 };
-
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -39,18 +35,7 @@ const allowedPartners = {
 };
 
 // カード名（日本語前提）
-const cardLabel = {
-  "環境": "環境",
-  "予算": "予算",
-  "リスクマネジメント": "リスクマネジメント",
-  "人材": "人材",
-  "品質": "品質",
-  "時間": "時間"
-};
-function cardText(v) {
-  const s = String(v ?? "").trim();
-  return cardLabel[s] ?? s;
-}
+function cardText(v) { return String(v ?? "").trim(); }
 function normType(v) {
   const s = String(v ?? "").trim();
   if (s === "環境") return "environment";
@@ -63,25 +48,55 @@ function normType(v) {
 }
 
 // URLパラメータ
-function params() {
-  return new URLSearchParams(location.search);
-}
+function params() { return new URLSearchParams(location.search); }
 const q = params();
 
 // ✅ ベースURL（何も無し）なら運営
 const isAdmin = (q.get("admin") === "1") || (!q.has("me") && !q.has("admin"));
 const me = (q.get("me") || "player1").trim();
 
+// ✅ room（部屋）をURLで受け取る（並行開催の鍵）
+let roomId = (q.get("room") || "").trim();
+
+// 運営がベースURLで来たら「部屋IDを自動生成して admin&room に遷移」する
+function genRoomId() {
+  const r = Math.random().toString(36).slice(2, 7);
+  const t = Date.now().toString(36).slice(-5);
+  return `room-${t}${r}`;
+}
+function basePath() {
+  // /team-building/ でも /team-building/index.html でも対応
+  const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
+  return base;
+}
+function goto(url) { location.href = url; }
+
+// ✅ 運営で room が無い場合は自動で作って移動
+if (isAdmin && !roomId) {
+  const newId = genRoomId();
+  const url = `${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`;
+  goto(url);
+}
+
+// room がまだ空（参加者がroom無しで来た等）なら room1 に落とす
+roomId = roomId || "room1";
+
 if (!players.includes(me)) {
   alert("URLの me が不正です。?me=player1 のように指定してください。");
   throw new Error("invalid me");
 }
 
-// 画面ラベル
-document.getElementById("meLabel").textContent =
-  isAdmin ? `あなた：運営（admin=1）` : `あなたの役職：${playerLabel[me]}（固定）`;
+// 表示
+const meLabel = document.getElementById("meLabel");
+if (meLabel) {
+  meLabel.textContent = isAdmin
+    ? `あなた：運営（部屋：${roomId}）`
+    : `あなたの役職：${playerLabel[me]}（部屋：${roomId}）`;
+}
+const roomLabel = document.getElementById("roomLabel");
+if (roomLabel) roomLabel.textContent = roomId;
 
-// Firestore参照
+// Firestore参照（✅ roomId を使う）
 const playerRef = (pid) => db.collection("rooms").doc(roomId).collection("players").doc(pid);
 const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
 
@@ -107,27 +122,24 @@ firebase.auth().signInAnonymously()
 function initAfterLogin() {
   if (isAdmin) setupAdminPanel();
   renderPartners();
-
-  // ✅ 手札をリアルタイム更新（送信側も自動で変わる）
   subscribeHand();
-
   subscribeIncoming();
   subscribeOutgoing();
 }
 
-// 運営パネル（URL生成＋コピー）
+// 運営パネル：URL生成（room付き）＋コピー
 function setupAdminPanel() {
   document.getElementById("adminPanel").style.display = "block";
   const ul = document.getElementById("inviteLinks");
   ul.innerHTML = "";
 
-  // index.html が二重にならないベース
-  const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
+  const base = basePath();
 
   players.forEach(pid => {
-    const url = `${base}/index.html?me=${pid}`;
+    const url = `${base}/index.html?me=${pid}&room=${encodeURIComponent(roomId)}`;
 
     const li = document.createElement("li");
+
     const label = document.createElement("span");
     label.textContent = `${playerLabel[pid]}：`;
 
@@ -155,9 +167,23 @@ function setupAdminPanel() {
   });
 }
 
+// 運営：新しい部屋を作る（別会場用）
+function newRoom() {
+  const newId = genRoomId();
+  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`);
+}
+
+// 運営：部屋IDを入力して切替
+function goRoom() {
+  const v = (document.getElementById("roomInput").value || "").trim();
+  if (!v) return alert("部屋IDを入力してください（例：tokyoA）");
+  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(v)}`);
+}
+
 // 交換相手選択肢
 function renderPartners() {
   const sel = document.getElementById("partnerSelect");
+  if (!sel) return;
   sel.innerHTML = "";
   (allowedPartners[me] || []).forEach(pid => {
     const o = document.createElement("option");
@@ -167,10 +193,10 @@ function renderPartners() {
   });
 }
 
-// 運営：配布
+// 運営：配布（この部屋だけ）
 async function dealCards() {
   if (!isAdmin) return alert("運営のみ実行可能です");
-  log("配布開始");
+  log("配布開始（部屋：" + roomId + "）");
 
   const cardsSnap = await db.collection("cards").get();
   const deck = cardsSnap.docs.map(d => String(d.data().type ?? "").trim());
@@ -186,17 +212,17 @@ async function dealCards() {
   });
 
   await batch.commit();
-  alert("配布完了");
+  alert("配布完了（部屋：" + roomId + "）");
 }
 
-// ボタン用（任意）
+// 手札ボタン（任意）
 async function showHand() {
   const snap = await playerRef(me).get();
   if (!snap.exists) return alert("プレイヤーデータが存在しません");
   renderHandFromData(snap.data());
 }
 
-// ✅ 手札リアルタイム監視
+// ✅ 手札リアルタイム監視（交換後、送信側も自動更新）
 function subscribeHand() {
   playerRef(me).onSnapshot((snap) => {
     if (!snap.exists) return;
@@ -207,7 +233,7 @@ function subscribeHand() {
   });
 }
 
-// ✅ 描画本体
+// 描画
 function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
@@ -235,14 +261,13 @@ function renderHandFromData(data) {
 
     li.onclick = async () => {
       await playerRef(me).update({ selectedCard: card });
-      // 監視が勝手に再描画
     };
 
     ul.appendChild(li);
   });
 }
 
-// 交換リクエスト（自分→相手）
+// 交換リクエスト
 async function requestTrade() {
   const partner = document.getElementById("partnerSelect").value;
 
@@ -269,7 +294,7 @@ async function requestTrade() {
   alert(`提案しました：${playerLabel[partner]}へ（${cardText(give)}）`);
 }
 
-// 送信中（自分→相手）
+// 送信中
 function subscribeOutgoing() {
   tradesCol.where("from", "==", me).onSnapshot((snap) => {
     const ul = document.getElementById("outgoing");
@@ -300,13 +325,10 @@ function subscribeOutgoing() {
       li.appendChild(sub);
       ul.appendChild(li);
     });
-  }, (err) => {
-    console.error(err);
-    alert("送信中監視でエラー: " + (err?.message || err));
   });
 }
 
-// 受信（相手→自分）
+// 受信
 function subscribeIncoming() {
   tradesCol.where("to", "==", me).onSnapshot((snap) => {
     const ul = document.getElementById("incoming");
@@ -353,9 +375,6 @@ function subscribeIncoming() {
 
       ul.appendChild(li);
     });
-  }, (err) => {
-    console.error(err);
-    alert("受信監視でエラー: " + (err?.message || err));
   });
 }
 
@@ -403,15 +422,10 @@ async function acceptTrade(tradeId) {
     tx.update(fromRef, { hand: fromHand, selectedCard: null });
     tx.update(toRef, { hand: toHand, selectedCard: null });
 
-    tx.update(tradeRef, {
-      status: "done",
-      toCard: toGive,
-      doneAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    tx.update(tradeRef, { status: "done", toCard: toGive, doneAt: firebase.firestore.FieldValue.serverTimestamp() });
   });
 
-  alert("交換完了！");
-  // ✅ subscribeHand があるので、送信側/受信側とも自動で手札が変わります
+  alert("交換完了！（部屋：" + roomId + "）");
 }
 
 // 拒否
@@ -424,11 +438,7 @@ async function rejectTrade(tradeId) {
   if (t.to !== me) return alert("自分宛ではありません");
   if (t.status !== "pending") return alert("すでに処理済みです");
 
-  await tradeRef.update({
-    status: "rejected",
-    rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
-  });
-
+  await tradeRef.update({ status: "rejected", rejectedAt: firebase.firestore.FieldValue.serverTimestamp() });
   alert("拒否しました");
 }
 
@@ -438,3 +448,5 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+window.newRoom = newRoom;
+window.goRoom = goRoom;
