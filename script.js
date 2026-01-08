@@ -64,7 +64,7 @@ function normType(v) {
   if (raw === "予算") return "budget";
   if (raw === "人材") return "people";
   if (raw === "品質") return "quality";
-  if (raw === "リスク") return "risk";
+  if (raw === "リスクマネジメント") return "risk";
   if (raw === "時間") return "time";
 
   // cardText() を経由しても判定（カードが別表記でも拾える）
@@ -72,7 +72,7 @@ function normType(v) {
   if (jp === "予算") return "budget";
   if (jp === "人材") return "people";
   if (jp === "品質") return "quality";
-  if (jp === "リスク") return "risk";
+  if (jp === "リスクマネジメント") return "risk";
   if (jp === "時間") return "time";
 
   return "budget"; // 不明なら仮
@@ -425,5 +425,6 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+
 
 
