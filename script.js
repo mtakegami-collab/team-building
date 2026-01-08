@@ -19,6 +19,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
+// === 設定 ===
 const roomId = "room1";
 const players = ["player1", "player2", "player3", "player4", "player5"];
 
@@ -30,6 +31,7 @@ const playerLabel = {
   player5: "社員B"
 };
 
+// 交換可能な相手（指定ルール）
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -38,17 +40,52 @@ const allowedPartners = {
   player5: ["player3"]
 };
 
+// カード表示名（英語でも日本語でもOK）
+const cardLabel = {
+  budget: "予算", people: "人材", quality: "品質", risk: "リスク", time: "時間",
+  "予算": "予算", "人材": "人材", "品質": "品質", "リスク": "リスク", "時間": "時間"
+};
+function cardText(v) { return cardLabel[v] ?? String(v); }
+
+// 色分け用：カード種別を正規化
+function normType(v) {
+  const s = String(v);
+  if (s === "budget" || s === "予算") return "budget";
+  if (s === "people" || s === "人材") return "people";
+  if (s === "quality" || s === "品質") return "quality";
+  if (s === "risk" || s === "リスク") return "risk";
+  if (s === "time" || s === "時間") return "time";
+  return "budget"; // 不明時は仮
+}
+
 function params() { return new URLSearchParams(location.search); }
 const me = params().get("me") || "player1";
 const isAdmin = params().get("admin") === "1";
 
+if (!players.includes(me)) {
+  alert("URLの me が不正です。?me=player1 のように指定してください。");
+  throw new Error("invalid me");
+}
+
 document.getElementById("meLabel").textContent =
-  isAdmin ? "あなた：運営（admin=1）" : `あなたの役職：${playerLabel[me]}（固定）`;
+  isAdmin ? `あなた：運営（admin=1）` : `あなたの役職：${playerLabel[me]}（固定）`;
 
-const playerRef = (p) => db.collection("rooms").doc(roomId).collection("players").doc(p);
-const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
+// Firestore参照
+const playerRef = (p) =>
+  db.collection("rooms").doc(roomId).collection("players").doc(p);
 
-// ---- 匿名ログイン（ルールでauth必須のため）----
+const tradesCol =
+  db.collection("rooms").doc(roomId).collection("trades");
+
+// シャッフル
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+}
+
+// --- 匿名ログイン（ルールでauth必須） ---
 firebase.auth().signInAnonymously()
   .then(() => {
     log("匿名ログインOK");
@@ -65,15 +102,15 @@ function initAfterLogin() {
   subscribeIncoming();
 }
 
+// 運営パネル（URL生成）
 function setupAdminPanel() {
-  const panel = document.getElementById("adminPanel");
-  panel.style.display = "block";
-
+  document.getElementById("adminPanel").style.display = "block";
   const ul = document.getElementById("inviteLinks");
   ul.innerHTML = "";
 
-  // ✅ index.html が二重にならないベースURL
+  // index.html が二重にならないベース
   const base = `${location.origin}${location.pathname.replace(/\/index\.html$/, "").replace(/\/$/, "")}`;
+
   players.forEach(p => {
     const url = `${base}/index.html?me=${p}`;
     const li = document.createElement("li");
@@ -82,13 +119,19 @@ function setupAdminPanel() {
   });
 }
 
-function shuffle(a) {
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
+// 交換相手選択肢
+function renderPartners() {
+  const sel = document.getElementById("partnerSelect");
+  sel.innerHTML = "";
+  (allowedPartners[me] || []).forEach(p => {
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = playerLabel[p];
+    sel.appendChild(o);
+  });
 }
 
+// 運営：配布
 async function dealCards() {
   if (!isAdmin) return alert("運営のみ実行可能です");
   log("配布開始");
@@ -97,6 +140,7 @@ async function dealCards() {
   const deck = cardsSnap.docs.map(d => d.data().type);
 
   if (deck.length !== 20) return alert(`cards が ${deck.length} 枚です（20枚必要）`);
+  if (deck.some(x => x === undefined || x === null || x === "")) return alert("cards の type が空のものがあります");
 
   shuffle(deck);
 
@@ -112,50 +156,46 @@ async function dealCards() {
   alert("配布完了");
 }
 
+// 手札表示（カード型 + 色分け + 選択）
 async function showHand() {
   const snap = await playerRef(me).get();
-  if (!snap.exists) {
-    alert("プレイヤーデータが存在しません（Firestoreのplayersを確認）");
-    return;
-  }
+  if (!snap.exists) return alert("プレイヤーデータが存在しません（Firestoreのplayersを確認）");
 
   const data = snap.data();
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
 
   document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
-  document.getElementById("selectedText").textContent = `選択中：${selected || "なし"}`;
+  document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
 
   const ul = document.getElementById("hand");
   ul.innerHTML = "";
 
-  // ★ここが「カードっぽく」する部分
   hand.forEach(card => {
     const li = document.createElement("li");
-    li.className = "card" + (selected === card ? " selected" : "");
-    li.textContent = card;         // 表示文字（予算/人材/品質/リスク/時間）
-    li.title = "クリックで選択";
+    li.className = `card type-${normType(card)}${selected === card ? " selected" : ""}`;
+
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = cardText(card);
+
+    const sub = document.createElement("div");
+    sub.className = "card-sub";
+    sub.textContent = "クリックで選択";
+
+    li.appendChild(title);
+    li.appendChild(sub);
 
     li.onclick = async () => {
       await playerRef(me).update({ selectedCard: card });
-      showHand(); // 選択状態を再描画
+      showHand();
     };
 
     ul.appendChild(li);
   });
 }
 
-function renderPartners() {
-  const sel = document.getElementById("partnerSelect");
-  sel.innerHTML = "";
-  (allowedPartners[me] || []).forEach(p => {
-    const o = document.createElement("option");
-    o.value = p;
-    o.textContent = playerLabel[p];
-    sel.appendChild(o);
-  });
-}
-
+// 交換リクエスト（自分→相手）
 async function requestTrade() {
   const partner = document.getElementById("partnerSelect").value;
 
@@ -165,45 +205,172 @@ async function requestTrade() {
   }
 
   const meData = (await playerRef(me).get()).data() || {};
-  if (!meData.selectedCard) return alert("カードをクリックして選択してください");
+  const give = meData.selectedCard ?? null;
+  const myHand = Array.isArray(meData.hand) ? meData.hand : [];
+
+  if (!give) return alert("手札のカードをクリックして選択してください");
+  if (!myHand.includes(give)) return alert("selectedCard が hand にありません（不整合）");
+
+  // 同じ相手への未処理があればブロック
+  const existing = await tradesCol
+    .where("from", "==", me)
+    .where("to", "==", partner)
+    .where("status", "==", "pending")
+    .get()
+    .catch(() => null);
+
+  if (existing && !existing.empty) {
+    alert("同じ相手への未処理リクエストが既にあります。相手の承認を待ってください。");
+    return;
+  }
 
   await tradesCol.add({
     from: me,
     to: partner,
-    fromCard: meData.selectedCard,
+    fromCard: give,
     status: "pending",
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 
-  alert("交換リクエスト送信");
+  alert(`交換リクエスト送信：${playerLabel[partner]}へ（出すカード：${cardText(give)}）`);
 }
 
-// 受信監視（権限・インデックス問題を避けるため to==me のみ）
+// 受信監視（to==me のみ。pendingはJS側で絞る＝インデックス不要）
 function subscribeIncoming() {
   tradesCol.where("to", "==", me).onSnapshot((snap) => {
     const ul = document.getElementById("incoming");
     ul.innerHTML = "";
 
-    const docs = snap.docs.map(d => d.data()).filter(t => t.status === "pending");
-    if (docs.length === 0) {
+    const pending = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => t.status === "pending");
+
+    if (pending.length === 0) {
       const li = document.createElement("li");
       li.textContent = "（なし）";
       ul.appendChild(li);
       return;
     }
 
-    docs.forEach(t => {
+    pending.forEach(t => {
       const li = document.createElement("li");
-      li.textContent = `${playerLabel[t.from]}から：${t.fromCard}`;
+      li.className = `card type-${normType(t.fromCard)}`;
+      li.style.cursor = "default";
+
+      const title = document.createElement("div");
+      title.className = "card-title";
+      title.textContent = cardText(t.fromCard);
+
+      const sub = document.createElement("div");
+      sub.className = "card-sub";
+      sub.textContent = `${playerLabel[t.from]} からの交換依頼`;
+
+      const btnrow = document.createElement("div");
+      btnrow.className = "btnrow";
+
+      const acceptBtn = document.createElement("button");
+      acceptBtn.textContent = "承認して交換";
+      acceptBtn.onclick = () => acceptTrade(t.id);
+
+      const rejectBtn = document.createElement("button");
+      rejectBtn.textContent = "拒否";
+      rejectBtn.onclick = () => rejectTrade(t.id);
+
+      btnrow.appendChild(acceptBtn);
+      btnrow.appendChild(rejectBtn);
+
+      li.appendChild(title);
+      li.appendChild(sub);
+      li.appendChild(btnrow);
+
       ul.appendChild(li);
     });
+
   }, (err) => {
     console.error(err);
     alert("受信監視でエラー: " + (err?.message || err));
   });
 }
 
-// グローバル
+// 承認：トランザクションで手札を入れ替え
+async function acceptTrade(tradeId) {
+  await db.runTransaction(async (tx) => {
+    const tradeRef = tradesCol.doc(tradeId);
+    const tradeSnap = await tx.get(tradeRef);
+    if (!tradeSnap.exists) throw new Error("trade が存在しません");
+
+    const t = tradeSnap.data();
+
+    if (t.status !== "pending") throw new Error("すでに処理済みです");
+    if (t.to !== me) throw new Error("自分宛ではありません");
+
+    // ルールチェック（双方向）
+    if (!(allowedPartners[t.from] || []).includes(t.to)) throw new Error("ルール違反の交換です");
+    if (!(allowedPartners[t.to] || []).includes(t.from)) throw new Error("ルール違反の交換です");
+
+    const fromRef = playerRef(t.from);
+    const toRef = playerRef(t.to);
+
+    const fromSnap = await tx.get(fromRef);
+    const toSnap = await tx.get(toRef);
+
+    const fromData = fromSnap.data() || {};
+    const toData = toSnap.data() || {};
+
+    const fromHand = Array.isArray(fromData.hand) ? fromData.hand.slice() : [];
+    const toHand = Array.isArray(toData.hand) ? toData.hand.slice() : [];
+
+    const fromGive = t.fromCard;              // 相手が出すカード
+    const toGive = toData.selectedCard ?? null; // 自分が出すカード
+
+    if (!fromGive) throw new Error("相手の出すカードがありません");
+    if (!toGive) throw new Error("承認前に、あなたも手札から『渡す1枚』を選んでください");
+
+    if (!fromHand.includes(fromGive)) throw new Error("相手のカードが手札にありません（不整合）");
+    if (!toHand.includes(toGive)) throw new Error("あなたの selectedCard が手札にありません（不整合）");
+
+    // 1枚ずつ抜いて入れ替え（同名複数にも対応）
+    fromHand.splice(fromHand.indexOf(fromGive), 1);
+    toHand.splice(toHand.indexOf(toGive), 1);
+
+    fromHand.push(toGive);
+    toHand.push(fromGive);
+
+    tx.update(fromRef, { hand: fromHand, selectedCard: null });
+    tx.update(toRef, { hand: toHand, selectedCard: null });
+
+    tx.update(tradeRef, {
+      status: "done",
+      toCard: toGive,
+      doneAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  });
+
+  alert("交換完了！手札を更新します。");
+  showHand();
+}
+
+// 拒否
+async function rejectTrade(tradeId) {
+  const tradeRef = tradesCol.doc(tradeId);
+  const snap = await tradeRef.get();
+  if (!snap.exists) return;
+
+  const t = snap.data();
+  if (t.to !== me) return alert("自分宛ではありません");
+  if (t.status !== "pending") return alert("すでに処理済みです");
+
+  await tradeRef.update({
+    status: "rejected",
+    rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+
+  alert("拒否しました");
+}
+
+// グローバル公開（HTMLから呼ぶ）
 window.dealCards = dealCards;
 window.showHand = showHand;
 window.requestTrade = requestTrade;
+window.acceptTrade = acceptTrade;
+window.rejectTrade = rejectTrade;
