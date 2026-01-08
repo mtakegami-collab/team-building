@@ -62,9 +62,18 @@ function normType(v) {
   return "budget"; // 不明は仮
 }
 
-function params() { return new URLSearchParams(location.search); }
-const me = (params().get("me") || "player1").trim();
-const isAdmin = params().get("admin") === "1";
+function params() {
+  return new URLSearchParams(location.search);
+}
+
+const p = params();
+
+// ✅ 何も指定が無ければ「運営」
+const isAdmin = p.has("admin") || (!p.has("me") && !p.has("admin"));
+
+// 運営の場合は me を仮で player1 にしておく（表示・処理用）
+const me = p.get("me") || "player1";
+
 
 if (!players.includes(me)) {
   alert("URLの me が不正です。?me=player1 のように指定してください。");
@@ -415,3 +424,4 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+
