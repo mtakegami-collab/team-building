@@ -68,11 +68,12 @@ function params() {
 
 const p = params();
 
-// ✅ 何も指定が無ければ「運営」
-const isAdmin = p.has("admin") || (!p.has("me") && !p.has("admin"));
+// ✅ 「何も指定がない（ベースURL）」なら運営にする
+const isAdmin = (p.get("admin") === "1") || (!p.has("me") && !p.has("admin"));
 
-// 運営の場合は me を仮で player1 にしておく（表示・処理用）
-const me = p.get("me") || "player1";
+// me は参加者URLが無いときのために仮で player1
+const me = (p.get("me") || "player1").trim();
+
 
 
 if (!players.includes(me)) {
@@ -476,6 +477,7 @@ function renderHandFromData(data) {
     ul.appendChild(li);
   });
 }
+
 
 
 
