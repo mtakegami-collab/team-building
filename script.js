@@ -49,14 +49,35 @@ function cardText(v) { return cardLabel[v] ?? String(v); }
 
 // 色分け用：カード種別を正規化
 function normType(v) {
-  const s = String(v);
-  if (s === "budget" || s === "予算") return "budget";
-  if (s === "people" || s === "人材") return "people";
-  if (s === "quality" || s === "品質") return "quality";
-  if (s === "risk" || s === "リスク") return "risk";
-  if (s === "time" || s === "時間") return "time";
-  return "budget"; // 不明時は仮
+  // 文字の揺れを吸収（空白除去・小文字化）
+  const raw = String(v ?? "").trim();
+  const low = raw.toLowerCase();
+
+  // まず英語（firestoreのtypeが英語の場合）
+  if (low === "budget") return "budget";
+  if (low === "people") return "people";
+  if (low === "quality") return "quality";
+  if (low === "risk") return "risk";
+  if (low === "time") return "time";
+
+  // 次に日本語（表示名に寄せて判定）
+  if (raw === "予算") return "budget";
+  if (raw === "人材") return "people";
+  if (raw === "品質") return "quality";
+  if (raw === "リスク") return "risk";
+  if (raw === "時間") return "time";
+
+  // cardText() を経由しても判定（カードが別表記でも拾える）
+  const jp = String(cardText(raw)).trim();
+  if (jp === "予算") return "budget";
+  if (jp === "人材") return "people";
+  if (jp === "品質") return "quality";
+  if (jp === "リスク") return "risk";
+  if (jp === "時間") return "time";
+
+  return "budget"; // 不明なら仮
 }
+
 
 function params() { return new URLSearchParams(location.search); }
 const me = params().get("me") || "player1";
@@ -374,3 +395,4 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+
