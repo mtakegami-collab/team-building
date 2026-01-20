@@ -28,7 +28,7 @@ const playerLabel = {
   player5: "社員B"
 };
 
-// 交換可能（あなたのルール）
+// 交換可能
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -39,11 +39,11 @@ const allowedPartners = {
 
 // ✅ メッセージ可能（直属のみ）
 const messagePeers = {
-  player1: ["player2", "player3"],      // 部長 ⇄ 課長A,課長B
-  player2: ["player1", "player4"],      // 課長A ⇄ 部長,社員A
-  player3: ["player1", "player5"],      // 課長B ⇄ 部長,社員B
-  player4: ["player2"],                // 社員A ⇄ 課長A
-  player5: ["player3"]                 // 社員B ⇄ 課長B
+  player1: ["player2", "player3"], // 部長 ⇄ 課長A,課長B
+  player2: ["player1", "player4"], // 課長A ⇄ 部長,社員A
+  player3: ["player1", "player5"], // 課長B ⇄ 部長,社員B
+  player4: ["player2"],           // 社員A ⇄ 課長A
+  player5: ["player3"]            // 社員B ⇄ 課長B
 };
 
 // カード
@@ -149,7 +149,7 @@ async function initAfterLogin() {
 
   // ✅ メッセージ
   renderMessagePeers();
-  subscribeMessages();
+  subscribeMessages(); // ← これが「相手側で見えない」の対策を含む
 }
 
 // ===== 運営パネル =====
@@ -206,6 +206,7 @@ function renderPartners() {
     sel.appendChild(o);
   });
 }
+
 async function dealCards() {
   if (!isAdmin) return alert("運営のみ実行可能です");
   log("配布開始（部屋：" + roomId + "）");
@@ -231,12 +232,14 @@ async function showHand() {
   if (!snap.exists) return alert("プレイヤーデータが存在しません");
   renderHandFromData(snap.data());
 }
+
 function subscribeHand() {
   playerRef(me).onSnapshot((snap) => {
     if (!snap.exists) return;
     renderHandFromData(snap.data());
   }, (err) => alert("手札監視でエラー: " + (err?.message || err)));
 }
+
 function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
@@ -245,6 +248,7 @@ function renderHandFromData(data) {
   document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
 
   const ul = document.getElementById("hand");
+  if (!ul) return;
   ul.innerHTML = "";
 
   hand.forEach(card => {
@@ -272,7 +276,6 @@ function renderHandFromData(data) {
 async function requestTrade() {
   const partner = document.getElementById("partnerSelect")?.value;
   if (!partner) return alert("交換相手を選んでください");
-
   if (!(allowedPartners[me] || []).includes(partner)) return alert("その相手とは交換できません（ルール違反）");
 
   await ensurePlayerDoc(me);
@@ -289,6 +292,7 @@ async function requestTrade() {
     from: me, to: partner, fromCard: give, status: "pending",
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
+
   alert(`提案しました：${playerLabel[partner]}へ（${cardText(give)}）`);
 }
 
@@ -304,12 +308,15 @@ function subscribeOutgoing() {
     pending.forEach(t => {
       const li = document.createElement("li");
       li.className = `card type-${normType(t.fromCard)}`;
+
       const title = document.createElement("div");
       title.className = "card-title";
       title.textContent = cardText(t.fromCard);
+
       const sub = document.createElement("div");
       sub.className = "card-sub";
       sub.textContent = `${playerLabel[t.to]} に提案中`;
+
       li.appendChild(title); li.appendChild(sub);
       ul.appendChild(li);
     });
@@ -354,6 +361,7 @@ function subscribeIncoming() {
       li.appendChild(title);
       li.appendChild(sub);
       li.appendChild(btnrow);
+
       ul.appendChild(li);
     });
   });
@@ -394,6 +402,7 @@ async function acceptTrade(tradeId) {
 
     fromHand.splice(fromHand.indexOf(fromGive), 1);
     toHand.splice(toHand.indexOf(toGive), 1);
+
     fromHand.push(toGive);
     toHand.push(fromGive);
 
@@ -409,14 +418,16 @@ async function rejectTrade(tradeId) {
   const tradeRef = tradesCol.doc(tradeId);
   const snap = await tradeRef.get();
   if (!snap.exists) return;
+
   const t = snap.data();
   if (t.to !== me) return alert("自分宛ではありません");
   if (t.status !== "pending") return alert("すでに処理済みです");
+
   await tradeRef.update({ status: "rejected", rejectedAt: firebase.firestore.FieldValue.serverTimestamp() });
   alert("拒否しました");
 }
 
-// ===== ✅ メッセージ =====
+// ===== ✅ メッセージ（安定版 + 通知）=====
 
 // 送信先の選択肢（直属のみ）
 function renderMessagePeers() {
@@ -446,7 +457,7 @@ function renderMessagePeers() {
   if (hint) hint.textContent = `あなたの直属：${peers.map(pid => playerLabel[pid]).join(" / ")}`;
 }
 
-// 送信
+// ✅ 送信：serverTimestamp + clientAt(数値) を両方入れる（これが安定の鍵）
 async function sendMessage() {
   const to = document.getElementById("msgTo")?.value;
   const textEl = document.getElementById("msgText");
@@ -456,7 +467,6 @@ async function sendMessage() {
   if (!(messagePeers[me] || []).includes(to)) return alert("直属以外には送信できません");
   if (!text) return alert("メッセージを入力してください");
 
-  // 実体が無くてもOKだが、念のためdocを作る
   await ensurePlayerDoc(me);
   await ensurePlayerDoc(to);
 
@@ -464,39 +474,102 @@ async function sendMessage() {
     from: me,
     to,
     text,
+    clientAt: Date.now(), // ✅ 並び/通知用
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 
   textEl.value = "";
 }
 
-// 受信監視（2本の監視：送信したもの/受信したもの）
-let msgUnsub1 = null;
-let msgUnsub2 = null;
-const msgCache = new Map(); // id -> message
+// トースト通知（画面右下に出す）
+let toastTimer = null;
+function toast(msg) {
+  let box = document.getElementById("toast");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "toast";
+    box.style.position = "fixed";
+    box.style.right = "16px";
+    box.style.bottom = "16px";
+    box.style.padding = "10px 12px";
+    box.style.borderRadius = "12px";
+    box.style.background = "rgba(0,0,0,0.82)";
+    box.style.color = "white";
+    box.style.fontSize = "13px";
+    box.style.maxWidth = "320px";
+    box.style.zIndex = "9999";
+    box.style.boxShadow = "0 6px 16px rgba(0,0,0,0.25)";
+    document.body.appendChild(box);
+  }
+  box.textContent = msg;
+  box.style.display = "block";
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.style.display = "none"; }, 2500);
+}
+
+// メッセージ監視：room内の最新200件を監視して、クライアント側で「自分の直属だけ」抽出
+// → 複合インデックス不要＆確実に相手側でも表示されます
+let msgUnsub = null;
+let msgInitialLoaded = false;
+const msgCache = new Map(); // id -> msg
+let lastNotifiedClientAt = 0;
 
 function subscribeMessages() {
-  // 既存購読を解除
-  if (msgUnsub1) msgUnsub1();
-  if (msgUnsub2) msgUnsub2();
+  if (msgUnsub) msgUnsub();
 
-  // 送受信どちらも同じUIに出す
-  msgUnsub1 = messagesCol.where("from", "==", me).orderBy("createdAt", "desc").limit(50)
-    .onSnapshot(snap => {
-      snap.forEach(doc => msgCache.set(doc.id, { id: doc.id, ...doc.data() }));
-      renderMessages();
-    });
+  msgInitialLoaded = false;
+  msgCache.clear();
+  lastNotifiedClientAt = 0;
 
-  msgUnsub2 = messagesCol.where("to", "==", me).orderBy("createdAt", "desc").limit(50)
-    .onSnapshot(snap => {
-      snap.forEach(doc => msgCache.set(doc.id, { id: doc.id, ...doc.data() }));
+  msgUnsub = messagesCol
+    .orderBy("clientAt", "asc")
+    .limitToLast(200)
+    .onSnapshot((snap) => {
+      // 初回読み込みと追加分を区別して通知
+      const changes = snap.docChanges();
+
+      changes.forEach(ch => {
+        const m = { id: ch.doc.id, ...ch.doc.data() };
+        msgCache.set(m.id, m);
+
+        // ✅ 通知は「自分宛の新規追加」だけ
+        if (msgInitialLoaded && ch.type === "added") {
+          const allowed = new Set(messagePeers[me] || []);
+          const isMine = m.from === me;
+          const isToMe = m.to === me;
+          const fromAllowed = allowed.has(m.from);
+          const toAllowed = allowed.has(m.to);
+
+          if (isToMe && fromAllowed && (m.clientAt || 0) > lastNotifiedClientAt) {
+            lastNotifiedClientAt = m.clientAt || lastNotifiedClientAt;
+            toast(`新着メッセージ：${playerLabel[m.from]} から`);
+          }
+          // 送信側は通知不要
+          if (isMine && toAllowed) {
+            if ((m.clientAt || 0) > lastNotifiedClientAt) lastNotifiedClientAt = m.clientAt || lastNotifiedClientAt;
+          }
+        }
+      });
+
+      // 初回読み込み完了後にフラグON
+      if (!msgInitialLoaded) {
+        // 初回分の最大clientAtを覚えておく（次回から通知）
+        for (const m of msgCache.values()) {
+          lastNotifiedClientAt = Math.max(lastNotifiedClientAt, m.clientAt || 0);
+        }
+        msgInitialLoaded = true;
+      }
+
       renderMessages();
+    }, (err) => {
+      console.error(err);
+      alert("メッセージ監視でエラー: " + (err?.message || err));
     });
 }
 
-function formatTime(ts) {
-  if (!ts || !ts.toDate) return "";
-  const d = ts.toDate();
+function formatTimeClient(ms) {
+  if (!ms) return "";
+  const d = new Date(ms);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -505,18 +578,15 @@ function renderMessages() {
   const box = document.getElementById("msgList");
   if (!box) return;
 
-  // 自分の直属関係以外が混ざらないように“最終フィルタ”
   const allowed = new Set(messagePeers[me] || []);
+
+  // 自分と直属のやり取りだけ抽出
   const arr = Array.from(msgCache.values())
     .filter(m =>
       (m.from === me && allowed.has(m.to)) ||
       (m.to === me && allowed.has(m.from))
     )
-    .sort((a, b) => {
-      const ta = a.createdAt?.seconds ?? 0;
-      const tb = b.createdAt?.seconds ?? 0;
-      return ta - tb;
-    });
+    .sort((a, b) => (a.clientAt || 0) - (b.clientAt || 0));
 
   box.innerHTML = "";
 
@@ -530,18 +600,17 @@ function renderMessages() {
     const mine = m.from === me;
     div.className = `msgItem ${mine ? "msgMine" : "msgTheirs"}`;
 
-    const who = mine ? `→ ${playerLabel[m.to]}` : `${playerLabel[m.from]} → あなた`;
     div.textContent = m.text;
 
     const meta = document.createElement("div");
     meta.className = "msgMeta";
-    meta.textContent = `${who}　${formatTime(m.createdAt)}`;
+    const who = mine ? `→ ${playerLabel[m.to]}` : `${playerLabel[m.from]} → あなた`;
+    meta.textContent = `${who}　${formatTimeClient(m.clientAt)}`;
 
     div.appendChild(meta);
     box.appendChild(div);
   }
 
-  // 最新へスクロール
   box.scrollTop = box.scrollHeight;
 }
 
