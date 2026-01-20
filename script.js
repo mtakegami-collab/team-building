@@ -507,7 +507,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => { box.style.display = "none"; }, 2500);
 }
 
-// メッセージ監視：room内の最新200件を監視して、クライアント側で「自分の直属だけ」抽出
+// メッセージ監視：room内の最新100件を監視して、クライアント側で「自分の直属だけ」抽出
 // ===== メッセージ（監視・表示・カウント）=====
 
 let msgUnsub = null;
@@ -520,8 +520,8 @@ function updateMsgCount(n) {
   if (el) el.textContent = String(n);
 }
 
-// メッセージ監視：この部屋の最新200件（研修用途なら十分）
-// ※総数は「この監視に入っている件数」を表示します（0〜200）
+// メッセージ監視：この部屋の最新100件（研修用途なら十分）
+// ※総数は「この監視に入っている件数」を表示します（0〜100）
 function subscribeMessages() {
   if (msgUnsub) msgUnsub();
 
@@ -531,7 +531,7 @@ function subscribeMessages() {
 
   msgUnsub = messagesCol
     .orderBy("clientAt", "asc")
-    .limitToLast(200)
+    .limitToLast(100)
     .onSnapshot((snap) => {
 
       // ✅ ここで必ずカウント更新（監視と同じタイミングで確実に増える）
@@ -626,5 +626,6 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
 
 
