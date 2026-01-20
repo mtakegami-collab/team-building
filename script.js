@@ -525,6 +525,9 @@ function subscribeMessages() {
     .orderBy("clientAt", "asc")
     .limitToLast(200)
     .onSnapshot((snap) => {
+// ✅ 総メッセージ数（この部屋）をリアルタイム表示
+const countEl = document.getElementById("msgCount");
+if (countEl) countEl.textContent = String(snap.size);
       // 初回読み込みと追加分を区別して通知
       const changes = snap.docChanges();
 
@@ -623,3 +626,4 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
