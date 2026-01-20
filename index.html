@@ -38,7 +38,7 @@
       font-weight:700;
     }
 
-    /* 色分け（例） */
+    /* 色分け */
     .type-environment { background:#dff7ff; border-color:#0aa2c0; } /* 環境 */
     .type-budget      { background:#e7ffe7; border-color:#1b7f2a; } /* 予算 */
     .type-riskmgmt    { background:#ffe3e3; border-color:#c62828; } /* リスクマネジメント */
@@ -68,6 +68,42 @@
 
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     input[type="text"]{ padding:6px 8px; border:1px solid #ccc; border-radius:8px; }
+
+    /* メッセージUI */
+    #msgBox{
+      border:1px solid #ddd;
+      border-radius:12px;
+      padding:12px;
+      background:#fafafa;
+      margin-top:12px;
+    }
+    #msgList{
+      border:1px solid #ddd;
+      border-radius:12px;
+      background:#fff;
+      padding:10px;
+      height:260px;
+      overflow:auto;
+      margin-top:8px;
+    }
+    .msgItem{
+      padding:8px 10px;
+      border-radius:10px;
+      margin:6px 0;
+      max-width: 760px;
+      word-break: break-word;
+    }
+    .msgMine{ background:#e8f0ff; margin-left:auto; }
+    .msgTheirs{ background:#f3f3f3; margin-right:auto; }
+    .msgMeta{ font-size:11px; color:#666; margin-top:4px; }
+    textarea{
+      width:min(760px, 100%);
+      height:70px;
+      padding:8px 10px;
+      border:1px solid #ccc;
+      border-radius:10px;
+      resize:vertical;
+    }
   </style>
 </head>
 
@@ -119,6 +155,29 @@
   <h3>受信中リクエスト</h3>
   <p class="muted">※ 承認する前に、あなたも「渡す1枚」を手札から選んでください</p>
   <ul id="incoming" class="grid"></ul>
+
+  <hr />
+
+  <!-- ✅ メッセージ -->
+  <h2>メッセージ（直属のみ）</h2>
+  <div id="msgBox">
+    <div class="row">
+      <label>送信先：</label>
+      <select id="msgTo"></select>
+      <span class="muted">※ 直属の上司・部下のみ選べます</span>
+    </div>
+
+    <div style="margin-top:8px;">
+      <textarea id="msgText" placeholder="メッセージを入力"></textarea>
+    </div>
+
+    <div class="row" style="margin-top:8px;">
+      <button onclick="sendMessage()">送信</button>
+      <span class="muted" id="msgHint"></span>
+    </div>
+
+    <div id="msgList"></div>
+  </div>
 
   <hr />
   <h3>ログ</h3>
