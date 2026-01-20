@@ -508,12 +508,20 @@ function toast(msg) {
 }
 
 // メッセージ監視：room内の最新200件を監視して、クライアント側で「自分の直属だけ」抽出
-// → 複合インデックス不要＆確実に相手側でも表示されます
+// ===== メッセージ（監視・表示・カウント）=====
+
 let msgUnsub = null;
 let msgInitialLoaded = false;
 const msgCache = new Map(); // id -> msg
 let lastNotifiedClientAt = 0;
 
+function updateMsgCount(n) {
+  const el = document.getElementById("msgCount");
+  if (el) el.textContent = String(n);
+}
+
+// メッセージ監視：この部屋の最新200件（研修用途なら十分）
+// ※総数は「この監視に入っている件数」を表示します（0〜200）
 function subscribeMessages() {
   if (msgUnsub) msgUnsub();
 
@@ -525,38 +533,31 @@ function subscribeMessages() {
     .orderBy("clientAt", "asc")
     .limitToLast(200)
     .onSnapshot((snap) => {
-// ✅ 総メッセージ数（この部屋）をリアルタイム表示
-const countEl = document.getElementById("msgCount");
-if (countEl) countEl.textContent = String(snap.size);
-      // 初回読み込みと追加分を区別して通知
+
+      // ✅ ここで必ずカウント更新（監視と同じタイミングで確実に増える）
+      updateMsgCount(snap.size);
+
       const changes = snap.docChanges();
 
       changes.forEach(ch => {
         const m = { id: ch.doc.id, ...ch.doc.data() };
         msgCache.set(m.id, m);
 
-        // ✅ 通知は「自分宛の新規追加」だけ
+        // 通知は「初回ロード後」「自分宛て」「直属から」「新規追加」のみ
         if (msgInitialLoaded && ch.type === "added") {
           const allowed = new Set(messagePeers[me] || []);
-          const isMine = m.from === me;
           const isToMe = m.to === me;
           const fromAllowed = allowed.has(m.from);
-          const toAllowed = allowed.has(m.to);
 
           if (isToMe && fromAllowed && (m.clientAt || 0) > lastNotifiedClientAt) {
             lastNotifiedClientAt = m.clientAt || lastNotifiedClientAt;
             toast(`新着メッセージ：${playerLabel[m.from]} から`);
           }
-          // 送信側は通知不要
-          if (isMine && toAllowed) {
-            if ((m.clientAt || 0) > lastNotifiedClientAt) lastNotifiedClientAt = m.clientAt || lastNotifiedClientAt;
-          }
         }
       });
 
-      // 初回読み込み完了後にフラグON
       if (!msgInitialLoaded) {
-        // 初回分の最大clientAtを覚えておく（次回から通知）
+        // 初回ロードでは通知しない（既存分の最大 clientAt を記録）
         for (const m of msgCache.values()) {
           lastNotifiedClientAt = Math.max(lastNotifiedClientAt, m.clientAt || 0);
         }
@@ -583,7 +584,7 @@ function renderMessages() {
 
   const allowed = new Set(messagePeers[me] || []);
 
-  // 自分と直属のやり取りだけ抽出
+  // 自分と直属のやり取りだけ表示
   const arr = Array.from(msgCache.values())
     .filter(m =>
       (m.from === me && allowed.has(m.to)) ||
@@ -602,7 +603,6 @@ function renderMessages() {
     const div = document.createElement("div");
     const mine = m.from === me;
     div.className = `msgItem ${mine ? "msgMine" : "msgTheirs"}`;
-
     div.textContent = m.text;
 
     const meta = document.createElement("div");
@@ -626,4 +626,5 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
 
