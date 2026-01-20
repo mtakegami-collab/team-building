@@ -14,7 +14,6 @@ const firebaseConfig = {
   messagingSenderId: "901002422228",
   appId: "1:901002422228:web:ac6817c3241dbef8a61841"
 };
-
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
@@ -29,6 +28,7 @@ const playerLabel = {
   player5: "社員B"
 };
 
+// 交換可能（あなたのルール）
 const allowedPartners = {
   player1: ["player2", "player3"],
   player2: ["player1", "player4"],
@@ -37,7 +37,16 @@ const allowedPartners = {
   player5: ["player3"]
 };
 
-// カード（日本語前提）
+// ✅ メッセージ可能（直属のみ）
+const messagePeers = {
+  player1: ["player2", "player3"],      // 部長 ⇄ 課長A,課長B
+  player2: ["player1", "player4"],      // 課長A ⇄ 部長,社員A
+  player3: ["player1", "player5"],      // 課長B ⇄ 部長,社員B
+  player4: ["player2"],                // 社員A ⇄ 課長A
+  player5: ["player3"]                 // 社員B ⇄ 課長B
+};
+
+// カード
 function cardText(v) { return String(v ?? "").trim(); }
 function normType(v) {
   const s = String(v ?? "").trim();
@@ -50,15 +59,15 @@ function normType(v) {
   return "budget";
 }
 
-// ===== URLパラメータ =====
+// URLパラメータ
 function params() { return new URLSearchParams(location.search); }
 const q = params();
 
-// ✅ ベースURL（何も無し）なら運営
+// ベースURLなら運営
 const isAdmin = (q.get("admin") === "1") || (!q.has("me") && !q.has("admin"));
 const me = (q.get("me") || "player1").trim();
 
-// ✅ 同時並行の鍵：room
+// room
 let roomId = (q.get("room") || "").trim();
 
 function genRoomId() {
@@ -71,13 +80,10 @@ function basePath() {
 }
 function goto(url) { location.href = url; }
 
-// ✅ 運営で room が無い場合：自動で作って運営URLへ遷移
+// 運営で room 無いなら自動生成して遷移
 if (isAdmin && !roomId) {
-  const newId = genRoomId();
-  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`);
+  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(genRoomId())}`);
 }
-
-// 参加者が room 無しで来た場合は room1 に落とす（保険）
 roomId = roomId || "room1";
 
 if (!players.includes(me)) {
@@ -85,7 +91,7 @@ if (!players.includes(me)) {
   throw new Error("invalid me");
 }
 
-// ===== 表示 =====
+// 表示
 const meLabelEl = document.getElementById("meLabel");
 if (meLabelEl) {
   meLabelEl.textContent = isAdmin
@@ -95,28 +101,24 @@ if (meLabelEl) {
 const roomLabelEl = document.getElementById("roomLabel");
 if (roomLabelEl) roomLabelEl.textContent = roomId;
 
-// ===== Firestore参照（room対応）=====
-const playerRef = (pid) => db.collection("rooms").doc(roomId).collection("players").doc(pid);
-const tradesCol = db.collection("rooms").doc(roomId).collection("trades");
+// Firestore参照（room対応）
+const roomDoc = () => db.collection("rooms").doc(roomId);
+const playerRef = (pid) => roomDoc().collection("players").doc(pid);
+const tradesCol = roomDoc().collection("trades");
+const messagesCol = roomDoc().collection("messages");
 
-// ===== 共通 =====
+// 共通
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
 }
-
-// ✅ 参加者が来たら、自分の players ドキュメントを自動作成
 async function ensurePlayerDoc(pid) {
   const ref = playerRef(pid);
   const snap = await ref.get();
   if (!snap.exists) {
-    await ref.set({
-      name: pid,
-      hand: [],
-      selectedCard: null
-    }, { merge: true });
+    await ref.set({ name: pid, hand: [], selectedCard: null }, { merge: true });
     log(`players/${pid} を作成しました`);
   }
 }
@@ -133,14 +135,10 @@ firebase.auth().signInAnonymously()
   });
 
 async function initAfterLogin() {
-  // ✅ 参加者でも運営でも、自分のdocは必ず作る
   await ensurePlayerDoc(me);
 
-  // ✅ 運営は5人分も作って「部屋を初期化」
   if (isAdmin) {
-    for (const pid of players) {
-      await ensurePlayerDoc(pid);
-    }
+    for (const pid of players) await ensurePlayerDoc(pid);
     setupAdminPanel();
   }
 
@@ -148,13 +146,16 @@ async function initAfterLogin() {
   subscribeHand();
   subscribeIncoming();
   subscribeOutgoing();
+
+  // ✅ メッセージ
+  renderMessagePeers();
+  subscribeMessages();
 }
 
 // ===== 運営パネル =====
 function setupAdminPanel() {
   const panel = document.getElementById("adminPanel");
   if (!panel) return;
-
   panel.style.display = "block";
 
   const ul = document.getElementById("inviteLinks");
@@ -162,54 +163,38 @@ function setupAdminPanel() {
   ul.innerHTML = "";
 
   const base = basePath();
-
   players.forEach(pid => {
     const url = `${base}/index.html?me=${pid}&room=${encodeURIComponent(roomId)}`;
 
     const li = document.createElement("li");
-
     const label = document.createElement("span");
     label.textContent = `${playerLabel[pid]}：`;
 
     const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.textContent = url;
+    a.href = url; a.target = "_blank"; a.textContent = url;
     a.style.marginRight = "8px";
 
     const btn = document.createElement("button");
     btn.textContent = "コピー";
     btn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(url);
-        alert(`${playerLabel[pid]} のURLをコピーしました`);
-      } catch {
-        prompt("コピーできない場合、ここからコピーしてください", url);
-      }
+      try { await navigator.clipboard.writeText(url); alert(`${playerLabel[pid]} のURLをコピーしました`); }
+      catch { prompt("コピーできない場合、ここからコピーしてください", url); }
     };
 
-    li.appendChild(label);
-    li.appendChild(a);
-    li.appendChild(btn);
+    li.appendChild(label); li.appendChild(a); li.appendChild(btn);
     ul.appendChild(li);
   });
 }
-
-// 新しい部屋へ（別会場用）
 function newRoom() {
-  const newId = genRoomId();
-  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(newId)}`);
+  goto(`${basePath()}/?admin=1&room=${encodeURIComponent(genRoomId())}`);
 }
-
-// 入力した部屋へ切替
 function goRoom() {
-  const input = document.getElementById("roomInput");
-  const v = (input?.value || "").trim();
+  const v = (document.getElementById("roomInput")?.value || "").trim();
   if (!v) return alert("部屋IDを入力してください（例：tokyoA）");
   goto(`${basePath()}/?admin=1&room=${encodeURIComponent(v)}`);
 }
 
-// ===== 交換相手 =====
+// ===== 交換 =====
 function renderPartners() {
   const sel = document.getElementById("partnerSelect");
   if (!sel) return;
@@ -221,15 +206,12 @@ function renderPartners() {
     sel.appendChild(o);
   });
 }
-
-// ===== 配布（運営のみ・この部屋だけ）=====
 async function dealCards() {
   if (!isAdmin) return alert("運営のみ実行可能です");
   log("配布開始（部屋：" + roomId + "）");
 
   const cardsSnap = await db.collection("cards").get();
   const deck = cardsSnap.docs.map(d => String(d.data().type ?? "").trim());
-
   if (deck.length !== 20) return alert(`cards が ${deck.length} 枚です（20枚必要）`);
   if (deck.some(x => !x)) return alert("cards の type が空のものがあります");
 
@@ -237,43 +219,32 @@ async function dealCards() {
 
   const batch = db.batch();
   players.forEach(pid => {
-    // ✅ players が無くても配れるように set(merge)
     batch.set(playerRef(pid), { hand: deck.splice(0, 4), selectedCard: null }, { merge: true });
   });
-
   await batch.commit();
   alert("配布完了（部屋：" + roomId + "）");
 }
 
-// ===== 手札表示（リアルタイム）=====
 async function showHand() {
   await ensurePlayerDoc(me);
   const snap = await playerRef(me).get();
   if (!snap.exists) return alert("プレイヤーデータが存在しません");
   renderHandFromData(snap.data());
 }
-
 function subscribeHand() {
   playerRef(me).onSnapshot((snap) => {
     if (!snap.exists) return;
     renderHandFromData(snap.data());
-  }, (err) => {
-    console.error(err);
-    alert("手札監視でエラー: " + (err?.message || err));
-  });
+  }, (err) => alert("手札監視でエラー: " + (err?.message || err)));
 }
-
 function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
   const selected = data.selectedCard ?? null;
 
-  const titleEl = document.getElementById("handTitle");
-  const selTextEl = document.getElementById("selectedText");
-  if (titleEl) titleEl.textContent = `${playerLabel[me]}の手札`;
-  if (selTextEl) selTextEl.textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
+  document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
+  document.getElementById("selectedText").textContent = `選択中：${selected ? cardText(selected) : "なし"}`;
 
   const ul = document.getElementById("hand");
-  if (!ul) return;
   ul.innerHTML = "";
 
   hand.forEach(card => {
@@ -294,22 +265,15 @@ function renderHandFromData(data) {
     li.onclick = async () => {
       await playerRef(me).set({ selectedCard: card }, { merge: true });
     };
-
     ul.appendChild(li);
   });
 }
 
-// ===== 交換リクエスト =====
 async function requestTrade() {
-  const sel = document.getElementById("partnerSelect");
-  const partner = sel?.value;
-
+  const partner = document.getElementById("partnerSelect")?.value;
   if (!partner) return alert("交換相手を選んでください");
 
-  if (!(allowedPartners[me] || []).includes(partner)) {
-    alert("その相手とは交換できません（ルール違反）");
-    return;
-  }
+  if (!(allowedPartners[me] || []).includes(partner)) return alert("その相手とは交換できません（ルール違反）");
 
   await ensurePlayerDoc(me);
   await ensurePlayerDoc(partner);
@@ -322,73 +286,44 @@ async function requestTrade() {
   if (!myHand.includes(give)) return alert("selectedCard が hand にありません（不整合）");
 
   await tradesCol.add({
-    from: me,
-    to: partner,
-    fromCard: give,
-    status: "pending",
+    from: me, to: partner, fromCard: give, status: "pending",
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
-
   alert(`提案しました：${playerLabel[partner]}へ（${cardText(give)}）`);
 }
 
-// ===== 送信中 =====
 function subscribeOutgoing() {
   const ul = document.getElementById("outgoing");
   if (!ul) return;
 
   tradesCol.where("from", "==", me).onSnapshot((snap) => {
     ul.innerHTML = "";
-
     const pending = snap.docs.map(d => d.data()).filter(t => t.status === "pending");
-
-    if (pending.length === 0) {
-      const li = document.createElement("li");
-      li.textContent = "（なし）";
-      ul.appendChild(li);
-      return;
-    }
+    if (pending.length === 0) { const li = document.createElement("li"); li.textContent = "（なし）"; ul.appendChild(li); return; }
 
     pending.forEach(t => {
       const li = document.createElement("li");
       li.className = `card type-${normType(t.fromCard)}`;
-
       const title = document.createElement("div");
       title.className = "card-title";
       title.textContent = cardText(t.fromCard);
-
       const sub = document.createElement("div");
       sub.className = "card-sub";
       sub.textContent = `${playerLabel[t.to]} に提案中`;
-
-      li.appendChild(title);
-      li.appendChild(sub);
+      li.appendChild(title); li.appendChild(sub);
       ul.appendChild(li);
     });
-  }, (err) => {
-    console.error(err);
-    alert("送信中監視でエラー: " + (err?.message || err));
   });
 }
 
-// ===== 受信中 =====
 function subscribeIncoming() {
   const ul = document.getElementById("incoming");
   if (!ul) return;
 
   tradesCol.where("to", "==", me).onSnapshot((snap) => {
     ul.innerHTML = "";
-
-    const pending = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(t => t.status === "pending");
-
-    if (pending.length === 0) {
-      const li = document.createElement("li");
-      li.textContent = "（なし）";
-      ul.appendChild(li);
-      return;
-    }
+    const pending = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.status === "pending");
+    if (pending.length === 0) { const li = document.createElement("li"); li.textContent = "（なし）"; ul.appendChild(li); return; }
 
     pending.forEach(t => {
       const li = document.createElement("li");
@@ -419,16 +354,11 @@ function subscribeIncoming() {
       li.appendChild(title);
       li.appendChild(sub);
       li.appendChild(btnrow);
-
       ul.appendChild(li);
     });
-  }, (err) => {
-    console.error(err);
-    alert("受信監視でエラー: " + (err?.message || err));
   });
 }
 
-// ===== 承認（トランザクションで安全に交換）=====
 async function acceptTrade(tradeId) {
   await db.runTransaction(async (tx) => {
     const tradeRef = tradesCol.doc(tradeId);
@@ -439,7 +369,6 @@ async function acceptTrade(tradeId) {
     if (t.status !== "pending") throw new Error("すでに処理済みです");
     if (t.to !== me) throw new Error("自分宛ではありません");
 
-    // ルールチェック
     if (!(allowedPartners[t.from] || []).includes(t.to)) throw new Error("ルール違反の交換です");
     if (!(allowedPartners[t.to] || []).includes(t.from)) throw new Error("ルール違反の交換です");
 
@@ -460,45 +389,160 @@ async function acceptTrade(tradeId) {
 
     if (!fromGive) throw new Error("相手の出すカードがありません");
     if (!toGive) throw new Error("承認前に、あなたも手札から『渡す1枚』を選んでください");
-
     if (!fromHand.includes(fromGive)) throw new Error("相手のカードが手札にありません（不整合）");
     if (!toHand.includes(toGive)) throw new Error("あなたの selectedCard が手札にありません（不整合）");
 
     fromHand.splice(fromHand.indexOf(fromGive), 1);
     toHand.splice(toHand.indexOf(toGive), 1);
-
     fromHand.push(toGive);
     toHand.push(fromGive);
 
     tx.set(fromRef, { hand: fromHand, selectedCard: null }, { merge: true });
     tx.set(toRef, { hand: toHand, selectedCard: null }, { merge: true });
-
-    tx.update(tradeRef, {
-      status: "done",
-      toCard: toGive,
-      doneAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    tx.update(tradeRef, { status: "done", toCard: toGive, doneAt: firebase.firestore.FieldValue.serverTimestamp() });
   });
 
   alert("交換完了！（部屋：" + roomId + "）");
 }
 
-// ===== 拒否 =====
 async function rejectTrade(tradeId) {
   const tradeRef = tradesCol.doc(tradeId);
   const snap = await tradeRef.get();
   if (!snap.exists) return;
-
   const t = snap.data();
   if (t.to !== me) return alert("自分宛ではありません");
   if (t.status !== "pending") return alert("すでに処理済みです");
+  await tradeRef.update({ status: "rejected", rejectedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  alert("拒否しました");
+}
 
-  await tradeRef.update({
-    status: "rejected",
-    rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+// ===== ✅ メッセージ =====
+
+// 送信先の選択肢（直属のみ）
+function renderMessagePeers() {
+  const sel = document.getElementById("msgTo");
+  const hint = document.getElementById("msgHint");
+  if (!sel) return;
+
+  sel.innerHTML = "";
+  const peers = messagePeers[me] || [];
+
+  if (peers.length === 0) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "（送信できる相手がいません）";
+    sel.appendChild(o);
+    if (hint) hint.textContent = "";
+    return;
+  }
+
+  peers.forEach(pid => {
+    const o = document.createElement("option");
+    o.value = pid;
+    o.textContent = playerLabel[pid];
+    sel.appendChild(o);
   });
 
-  alert("拒否しました");
+  if (hint) hint.textContent = `あなたの直属：${peers.map(pid => playerLabel[pid]).join(" / ")}`;
+}
+
+// 送信
+async function sendMessage() {
+  const to = document.getElementById("msgTo")?.value;
+  const textEl = document.getElementById("msgText");
+  const text = (textEl?.value || "").trim();
+
+  if (!to) return alert("送信先を選んでください");
+  if (!(messagePeers[me] || []).includes(to)) return alert("直属以外には送信できません");
+  if (!text) return alert("メッセージを入力してください");
+
+  // 実体が無くてもOKだが、念のためdocを作る
+  await ensurePlayerDoc(me);
+  await ensurePlayerDoc(to);
+
+  await messagesCol.add({
+    from: me,
+    to,
+    text,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+
+  textEl.value = "";
+}
+
+// 受信監視（2本の監視：送信したもの/受信したもの）
+let msgUnsub1 = null;
+let msgUnsub2 = null;
+const msgCache = new Map(); // id -> message
+
+function subscribeMessages() {
+  // 既存購読を解除
+  if (msgUnsub1) msgUnsub1();
+  if (msgUnsub2) msgUnsub2();
+
+  // 送受信どちらも同じUIに出す
+  msgUnsub1 = messagesCol.where("from", "==", me).orderBy("createdAt", "desc").limit(50)
+    .onSnapshot(snap => {
+      snap.forEach(doc => msgCache.set(doc.id, { id: doc.id, ...doc.data() }));
+      renderMessages();
+    });
+
+  msgUnsub2 = messagesCol.where("to", "==", me).orderBy("createdAt", "desc").limit(50)
+    .onSnapshot(snap => {
+      snap.forEach(doc => msgCache.set(doc.id, { id: doc.id, ...doc.data() }));
+      renderMessages();
+    });
+}
+
+function formatTime(ts) {
+  if (!ts || !ts.toDate) return "";
+  const d = ts.toDate();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderMessages() {
+  const box = document.getElementById("msgList");
+  if (!box) return;
+
+  // 自分の直属関係以外が混ざらないように“最終フィルタ”
+  const allowed = new Set(messagePeers[me] || []);
+  const arr = Array.from(msgCache.values())
+    .filter(m =>
+      (m.from === me && allowed.has(m.to)) ||
+      (m.to === me && allowed.has(m.from))
+    )
+    .sort((a, b) => {
+      const ta = a.createdAt?.seconds ?? 0;
+      const tb = b.createdAt?.seconds ?? 0;
+      return ta - tb;
+    });
+
+  box.innerHTML = "";
+
+  if (arr.length === 0) {
+    box.textContent = "（メッセージはまだありません）";
+    return;
+  }
+
+  for (const m of arr) {
+    const div = document.createElement("div");
+    const mine = m.from === me;
+    div.className = `msgItem ${mine ? "msgMine" : "msgTheirs"}`;
+
+    const who = mine ? `→ ${playerLabel[m.to]}` : `${playerLabel[m.from]} → あなた`;
+    div.textContent = m.text;
+
+    const meta = document.createElement("div");
+    meta.className = "msgMeta";
+    meta.textContent = `${who}　${formatTime(m.createdAt)}`;
+
+    div.appendChild(meta);
+    box.appendChild(div);
+  }
+
+  // 最新へスクロール
+  box.scrollTop = box.scrollHeight;
 }
 
 // ===== グローバル（HTMLボタン用）=====
@@ -509,3 +553,4 @@ window.showHand = showHand;
 window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
+window.sendMessage = sendMessage;
