@@ -20,6 +20,49 @@ const db = firebase.firestore();
 // ===== 固定設定 =====
 const players = ["player1", "player2", "player3", "player4", "player5"];
 
+// ✅ 指示書PDF（GitHub Pages上のパス）
+// まずは「pdf/ファイル名.pdf」で置いた前提
+const instructionPdf = {
+  player1: "pdf/部長_指示書.pdf",
+  player2: "pdf/課長A_指示書.pdf",
+  player3: "pdf/課長B_指示書.pdf",
+  player4: "pdf/社員A_指示書.pdf",
+  player5: "pdf/社員B_指示書.pdf",
+};
+
+function showInstructionIfDealt(hand) {
+  const box = document.getElementById("instructionBox");
+  if (!box) return;
+
+  // 配布前は表示しない（手札4枚になったら表示）
+  if (!Array.isArray(hand) || hand.length !== 4) {
+    box.textContent = "カード配布後に表示されます。";
+    return;
+  }
+
+  const rel = instructionPdf[me];
+  if (!rel) {
+    box.textContent = "指示書が設定されていません。";
+    return;
+  }
+
+  const url = `${basePath()}/${rel}`; // basePath() は既存の関数を使う想定
+
+  // ① ダウンロード/別タブで開くリンク
+  box.innerHTML = `
+    <div>あなたの指示書：<b>${playerLabel[me]}</b></div>
+    <div style="margin-top:6px;">
+      <a href="${url}" target="_blank" rel="noopener">指示書PDFを開く（別タブ）</a>
+      &nbsp;|&nbsp;
+      <a href="${url}" download>ダウンロード</a>
+    </div>
+    <div style="margin-top:10px;">
+      <iframe src="${url}" style="width:100%; height:520px; border:1px solid #ddd; border-radius:10px;"></iframe>
+    </div>
+  `;
+}
+
+
 const playerLabel = {
   player1: "部長",
   player2: "課長A",
@@ -242,6 +285,8 @@ function subscribeHand() {
 
 function renderHandFromData(data) {
   const hand = Array.isArray(data.hand) ? data.hand : [];
+  showInstructionIfDealt(hand);
+
   const selected = data.selectedCard ?? null;
 
   document.getElementById("handTitle").textContent = `${playerLabel[me]}の手札`;
@@ -626,6 +671,7 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
 
 
 
