@@ -24,10 +24,10 @@ const players = ["player1", "player2", "player3", "player4", "player5"];
 // まずは「pdf/ファイル名.pdf」で置いた前提
 const instructionPdf = {
   player1: "bucho.pdf",
-  player2: "kachoA.pdf",
+  player2: "kachpA.pdf",
   player3: "kachoB.pdf",
   player4: "shainA.pdf",
-  player5: "shainB.pdf",
+  player5: "syainB.pdf",
 };
 
 function showInstructionIfDealt(hand) {
@@ -671,6 +671,7 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
 
 
 
