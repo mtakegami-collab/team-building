@@ -23,11 +23,11 @@ const players = ["player1", "player2", "player3", "player4", "player5"];
 // ✅ 指示書PDF（GitHub Pages上のパス）
 // まずは「pdf/ファイル名.pdf」で置いた前提
 const instructionPdf = {
-  player1: "pdf/部長_指示書.pdf",
-  player2: "pdf/課長A_指示書.pdf",
-  player3: "pdf/課長B_指示書.pdf",
-  player4: "pdf/社員A_指示書.pdf",
-  player5: "pdf/社員B_指示書.pdf",
+  player1: "pdf/bucho.pdf",
+  player2: "pdf/kachoA.pdf",
+  player3: "pdf/kachoB.pdf",
+  player4: "pdf/shainA.pdf",
+  player5: "pdf/shainB.pdf",
 };
 
 function showInstructionIfDealt(hand) {
@@ -671,6 +671,7 @@ window.requestTrade = requestTrade;
 window.acceptTrade = acceptTrade;
 window.rejectTrade = rejectTrade;
 window.sendMessage = sendMessage;
+
 
 
 
